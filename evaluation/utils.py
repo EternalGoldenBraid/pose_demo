@@ -349,9 +349,8 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
             if len(dst_pts) > 10:
                 src_pts = pplane_ICP.depth_to_pointcloud(refined_est_depth.squeeze(), cam_K)
                 if len(src_pts) > 10:
-                    #import pdb; pdb.set_trace()
-                    icp_H = pplane_ICP.sim_icp(dst_pts.to('cpu'), 
-                                                src_pts.to('cpu'), 
+                    icp_H = pplane_ICP.sim_icp(dst_pts.to(device), 
+                                                src_pts.to(device), 
                                                 correspondences=config.ICP_correspondences, 
                                                 max_iterations=config.ICP_max_iterations,
                                                 neighbors=config.ICP_neighbors,
