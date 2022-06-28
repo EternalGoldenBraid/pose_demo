@@ -1,0 +1,3 @@
+#!/bin/bash
+xhost +si:localuser:$USER
+docker-compose -f docker-compose.yml up --build -d

@@ -1,0 +1,7 @@
+Dataspace/lm*
+venv
+evaluation/object_codebooks
+sensors
+checkpoints
+bop_toolkit
+Dataspace
