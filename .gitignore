@@ -5,3 +5,4 @@ sensors
 checkpoints
 bop_toolkit
 Dataspace
+__pycache__
