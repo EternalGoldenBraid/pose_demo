@@ -6,11 +6,14 @@ from pytorch3d.transforms import euler_angles_to_matrix
 RANDOM_SEED = 2021       # for reproduce the results of evaluation
 
 VIEWBOOK_BATCHSIZE = 200 #  batch size for constructing viewpoint codebook, reduce this if out of GPU memory
-RENDER_WIDTH = 480 # the width of rendered images
+RENDER_WIDTH = 640       # the width of rendered images
 RENDER_HEIGHT = 480      # the height of rendered images
 RENDER_DIST = 5          # the radius distance factor of uniform sampling relative to object diameter.
-RENDER_NUM_VIEWS = 4000  # the number of uniform sampling views from a sphere
-MODEL_SCALING = 1.0/1000 # TLESS object model scale from millimeter to meter
+#RENDER_NUM_VIEWS = 4000  # the number of uniform sampling views from a sphere
+RENDER_NUM_VIEWS = 400  # the number of uniform sampling views from a sphere
+
+#MODEL_SCALING = 1.0/1000 # TLESS object model scale from millimeter to meter
+MODEL_SCALING = 1.0      # Polycam objects as meter scale
 
 ZOOM_SIZE = 128          # the target zooming size
 ZOOM_MODE = 'bilinear'   # the target zooming mode (bilinear or nearest)

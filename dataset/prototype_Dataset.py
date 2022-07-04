@@ -6,9 +6,13 @@ class Dataset():
     def __init__(self, data_dir):
         self.model_dir = Path(data_dir) / 'models_eval'
         self.cam_file = Path(data_dir) / 'camera.json'
+
         
         with open(self.cam_file, 'r') as cam_f:
             self.cam_info = json.load(cam_f)
+
+        #import ipdb; ipdb.set_trace()
+
         
         self.cam_K = torch.tensor([
             [self.cam_info['fx'], 0, self.cam_info['cx']],

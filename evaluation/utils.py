@@ -29,8 +29,6 @@ def rotation_error(R0, R1):
 
 def background_filter(depths, diameters, dist_factor=0.5):
     """
-  13 files = ['_Depth_1656333461794.60351562500000.csv', '_Depth_1656333463394.28930664062500.csv',
-  14         '_Depth_1656333465394.65112304687500.csv', '_Depth_1656333466832.90551757812500.csv']
     filter out the outilers beyond the object diameter
     """
     new_depths = list()
@@ -62,6 +60,7 @@ def background_filter(depths, diameters, dist_factor=0.5):
         med_val = dep_val.median()
         
         dep_dist = (dep_val - med_val).abs()
+
         dist, indx = torch.topk(dep_dist, k=len(dep_dist))
         invalid_idx = indx[dist > dist_factor * diameter]
         dep_val[invalid_idx] = 0
@@ -264,7 +263,7 @@ def OVE6D_translation_estimation(est_R, est_t, intrinsic, obj_scene, obj_render)
     refined_est_t = 2 * est_t - est_syn_t
     return refined_est_t
 
-
+@iex
 def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, config, obj_renderer, device):
     """
     Perform OVE6D with given single mask 
@@ -278,7 +277,7 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
     obj_diameter = obj_codebook['diameter']
     
     bg_timer = time.time()
-    obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
+    #obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
     bg_cost = time.time() - bg_timer
     prep_timer = time.time()
     obj_mask[obj_depth<0] = 0
