@@ -178,6 +178,10 @@ def viewpoint_sampling_and_encoding(model_func, obj_model_file, obj_diameter, co
                                                             zoom_scale_mode=zoom_scale_mode, 
                                                             zoom_size=zoom_size, 
                                                             device=device)
+
+        #import pdb; pdb.set_trace()
+        #from matplotlib import pyplot as plt
+        #plt.imshow(cbk_zoom_depths[0].cpu().squeeze()); plt.show()
                 
         cbk_delta_Ts = cbk_Ts - cbk_init_ts.cpu().squeeze()
         with torch.no_grad():
@@ -318,8 +322,6 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
     icp_cost = time.time() - icp_timer
     postp_cost = 0
     tsl_cost = 0
-    #import pdb; pdb.set_trace()
-    print(init_t)
     obj_context = rendering.SceneContext(obj=obj_mesh, intrinsic=cam_K.cpu()) # define a scene
     for idx, (obj_est_R, obj_est_score) in enumerate(zip(estimated_R, estimated_scores)):
         tsl_timer = time.time()

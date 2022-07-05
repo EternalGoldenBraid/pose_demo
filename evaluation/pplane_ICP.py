@@ -60,7 +60,18 @@ class PointCloud:
         eig_vals, eig_vecs = np.linalg.eig(batch_C.detach().cpu().numpy())
         eig_vals = torch.tensor(eig_vals).to(self.device)
         eig_vecs = torch.tensor(eig_vecs).to(self.device)
+
+        ### DEBUG
+        #import pdb; pdb.set_trace()
+        if eig_vals.dtype == torch.cfloat:
+            print("67: CASTING CFLOATS AS REAL")
+            eig_vals = eig_vals.real
+        if eig_vecs.dtype == torch.cfloat:
+            print("70: CASTING CFLOATS AS REAL")
+            eig_vecs = eig_vecs.real
+        ### DEBUG
         
+            
         _, idx_sort_vals = eig_vals.topk(k=eig_vals.shape[-1], dim=-1) # descending orders, Qx3
         idx_sort_vecs = idx_sort_vals[:, 2:3][..., None].repeat(1, 3, 1) # Qx3x3
         new_eig_vals = torch.gather(eig_vals, dim=1, index=idx_sort_vals).squeeze() # sorted eigen values by descending order
@@ -132,16 +143,21 @@ def estimate_rigid_body_transformation(pcfix, pcmov):
                      nx_fix,  ny_fix, nz_fix], dim=-1).detach().cpu().numpy()
     
     b = (dst_normals * (fix_pts - mov_pts)).sum(dim=1).detach().cpu().numpy() # Sx3 -> S
-    
+    print("b:",b.shape)
     x, _, _, _ = np.linalg.lstsq(A, b)
-
+    print(x.shape)
     A = torch.tensor(A).to(pcfix.device)
     b = torch.tensor(b).to(pcfix.device)
     x = torch.tensor(x).to(pcfix.device)
     
     x = torch.clamp(x, torch.tensor(-0.5, device=pcfix.device),  torch.tensor(0.5, device=pcfix.device))
 
-    residuals = A @ x - b
+    print("b:",b.shape)
+    print("x:",x.shape)
+    print("A:",A.shape)
+    #import pdb; pdb.set_trace()
+    residuals = A.cpu() @ x.cpu() - b.cpu()
+    residuals = residuals.to(pcfix.device)
     
     R =  euler_angles_to_linearized_rotation_matrix(x[0], x[1], x[2])
     t = x[3:6]

@@ -5,3 +5,5 @@ sensors
 checkpoints
 bop_toolkit
 __pycache__
+*~
+*.pyc
