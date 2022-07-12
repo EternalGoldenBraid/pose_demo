@@ -143,20 +143,21 @@ def estimate_rigid_body_transformation(pcfix, pcmov):
                      nx_fix,  ny_fix, nz_fix], dim=-1).detach().cpu().numpy()
     
     b = (dst_normals * (fix_pts - mov_pts)).sum(dim=1).detach().cpu().numpy() # Sx3 -> S
-    print("b:",b.shape)
+    #print("b:",b.shape)
     x, _, _, _ = np.linalg.lstsq(A, b)
-    print(x.shape)
+    #print(x.shape)
     A = torch.tensor(A).to(pcfix.device)
     b = torch.tensor(b).to(pcfix.device)
     x = torch.tensor(x).to(pcfix.device)
     
     x = torch.clamp(x, torch.tensor(-0.5, device=pcfix.device),  torch.tensor(0.5, device=pcfix.device))
 
-    print("b:",b.shape)
-    print("x:",x.shape)
-    print("A:",A.shape)
+    #print("b:",b.shape)
+    #print("x:",x.shape)
+    #print("A:",A.shape)
     #import pdb; pdb.set_trace()
-    residuals = A.cpu() @ x.cpu() - b.cpu()
+    #residuals = A.cpu() @ x.cpu() - b.cpu()
+    residuals = A @ x - b
     residuals = residuals.to(pcfix.device)
     
     R =  euler_angles_to_linearized_rotation_matrix(x[0], x[1], x[2])
