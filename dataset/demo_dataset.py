@@ -1,13 +1,12 @@
+import os
+from numba import prange
 import json
 import torch
 from pathlib import Path
 from pytorch3d.io import load_ply
 from lib import (rendering, network,
         agnostic_segmentation)
-import polyscope as ps
 from numpy.random import default_rng
-
-
 
 class Dataset():
     def __init__(self, data_dir, cfg, 
@@ -26,21 +25,26 @@ class Dataset():
         self.limit = 2000 # Number of points
 
         self.model_info_file = self.model_dir / 'models_info.json'
+        #self.model_info_file = os.path.abspath(os.path.join(
+            #os.path.dirname(__file__), '..', self.model_dir, 'models_info.json'))
         with open(self.model_info_file, 'r') as model_f:
             self.model_info = json.load(model_f)
         
         rng = default_rng()
-        for model_file in sorted(self.model_dir.iterdir()):
-            if str(model_file).endswith('.ply'):
-                obj_id = int(model_file.name.split('_')[-1].split('.')[0])
-                self.obj_model_file[obj_id] = model_file
+        #for model_file in sorted(self.model_dir.iterdir()):
+        #breakpoint()
+        model_files = os.listdir(self.model_dir)
+        for file_idx in prange(len(model_files)):
+            if str(model_files[file_idx]).endswith('.ply'):
+                obj_id = int(model_files[file_idx].split('_')[-1].split('.')[0])
+                self.obj_model_file[obj_id] = model_files[file_idx]
                 self.obj_diameter[obj_id] = self.model_info[str(obj_id)]['diameter']
-                self.point_cloud[obj_id], _ = load_ply(model_file)
+                self.point_cloud[obj_id], _ = load_ply(self.model_dir/model_files[file_idx])
 
-                #if self.point_cloud[obj_id].shape[1] > self.limit:
-                #    idxs = rng.integers(low=0, 
-                #            high=self.point_cloud[obj_id].shape[1], size=self.limit)
-                #    self.point_cloud[obj_id] = self.point_cloud[obj_id][::50]
+                if self.point_cloud[obj_id].shape[1] > self.limit:
+                    idxs = rng.integers(low=0, 
+                            high=self.point_cloud[obj_id].shape[1], size=self.limit)
+                    self.point_cloud[obj_id] = self.point_cloud[obj_id][idxs]
 
 
         if self.cam_K == None:

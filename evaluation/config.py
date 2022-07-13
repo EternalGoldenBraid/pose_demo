@@ -1,4 +1,3 @@
-
 import math
 import torch
 from pytorch3d.transforms import euler_angles_to_matrix
@@ -12,7 +11,7 @@ RENDER_DIST = 5          # the radius distance factor of uniform sampling relati
 RENDER_NUM_VIEWS = 4000  # the number of uniform sampling views from a sphere
 
 #MODEL_SCALING = 1.0/1000 # TLESS object model scale from millimeter to meter
-MODEL_SCALING = 1.0      # Polycam objects as meter scale
+MODEL_SCALING = 1.0      # Polycam objects at meter scale
 
 ZOOM_SIZE = 128          # the target zooming size
 ZOOM_MODE = 'bilinear'   # the target zooming mode (bilinear or nearest)
@@ -21,14 +20,14 @@ DATASET_NAME = ''
 SAVE_FTMAP = True        # store the latent feature maps of viewpoint (for rotation regression)
 
 HEMI_ONLY = True
-USE_ICP = True
+USE_ICP = False
 ICP_neighbors = 10         
 ICP_min_planarity = 0.2     
 ICP_max_iterations = 20     # max iterations for ICP
 ICP_correspondences = 1000  # the number of points selected for iteration
 
-VP_NUM_TOPK = 50   # the number of viewpoint retrievals
-POSE_NUM_TOPK = 5  # the number of pose hypotheses
+VP_NUM_TOPK = 50   # the number of viewpoint retrievals TODO: Is this uniform sampling?
+POSE_NUM_TOPK = 5  # the number of pose hypotheses TODO: And top
 
 
 DATA_PATH = 'Dataspace'

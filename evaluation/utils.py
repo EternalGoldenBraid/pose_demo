@@ -1,4 +1,5 @@
 import os
+from numba import njit, prange
 import time
 import glob
 import math
@@ -149,6 +150,7 @@ def viewpoint_sampling_and_encoding(model_func, obj_model_file, obj_diameter, co
     infer_costs = list()
     intrinsic = intrinsic.to(device)
 
+    breakpoint()
     obj_mesh, _ = rendering.load_object(obj_model_file, resize=False, recenter=False)
     obj_mesh.rescale(scale=render_obj_scale) # from millimeter normalize to meter
 

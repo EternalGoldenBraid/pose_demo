@@ -1,4 +1,5 @@
 import os
+from numba import njit, prange
 import cv2
 import sys
 import json
@@ -64,14 +65,6 @@ class PoseEstimator:
 
     def __del__(self):
         del self.obj_renderer
-
-def load_data(datapath=None):
-
-    ### DATA
-    eval_dataset = prototype_Dataset.Dataset(datapath / 'huawei_box')
-    #eval_dataset = LineMOD_Dataset.Dataset(datapath / 'lm')
-    
-    return eval_dataset
 
 def load_codebooks(model_net, eval_dataset):
     ### CODEBOOKS
@@ -190,6 +183,7 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
 
     return depth_scale, K, aligned_depth_frame
     
+#@njit(parallel=True)
 def main(obj_id):
 
     #cfg.RENDER_WIDTH = eval_dataset.cam_width    # the width of rendered images
@@ -221,7 +215,7 @@ def main(obj_id):
 
     timeit.endlog()
     timeit.log("Loading data.")
-    dataroot = Path(cfg.DATA_PATH)
+    dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH)
 
