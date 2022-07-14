@@ -1,5 +1,6 @@
 import os
-from numba import prange
+from numba import njit
+import numpy as np
 import json
 import torch
 from pathlib import Path
@@ -7,6 +8,7 @@ from pytorch3d.io import load_ply
 from lib import (rendering, network,
         agnostic_segmentation)
 from numpy.random import default_rng
+from ipdb import iex
 
 class Dataset():
     def __init__(self, data_dir, cfg, 
@@ -14,6 +16,7 @@ class Dataset():
         self.model_dir = Path(data_dir) / 'models_eval'
         self.cam_file = Path(data_dir) / 'camera.json'
         self.cam_K = cam_K
+        self.cam_K_np = cam_K.cpu().numpy()
         self.cam_height = cam_height
         self.cam_width = cam_width
         self.model_info = None
@@ -30,54 +33,55 @@ class Dataset():
         with open(self.model_info_file, 'r') as model_f:
             self.model_info = json.load(model_f)
         
-        rng = default_rng()
-        #for model_file in sorted(self.model_dir.iterdir()):
-        #breakpoint()
-        model_files = os.listdir(self.model_dir)
-        for file_idx in prange(len(model_files)):
-            if str(model_files[file_idx]).endswith('.ply'):
-                obj_id = int(model_files[file_idx].split('_')[-1].split('.')[0])
-                self.obj_model_file[obj_id] = model_files[file_idx]
+        #rng = default_rng()
+        for model_file in sorted(self.model_dir.iterdir()):
+            #breakpoint()
+            if str(model_file).endswith('.ply'):
+                obj_id = int(model_file.name.split('_')[-1].split('.')[0])
+                self.obj_model_file[obj_id] = model_file
                 self.obj_diameter[obj_id] = self.model_info[str(obj_id)]['diameter']
-                self.point_cloud[obj_id], _ = load_ply(self.model_dir/model_files[file_idx])
+                self.point_cloud[obj_id], _ = load_ply(model_file)
+                self.point_cloud[obj_id] = self.point_cloud[obj_id].numpy()
 
-                if self.point_cloud[obj_id].shape[1] > self.limit:
-                    idxs = rng.integers(low=0, 
-                            high=self.point_cloud[obj_id].shape[1], size=self.limit)
-                    self.point_cloud[obj_id] = self.point_cloud[obj_id][idxs]
+                #if self.point_cloud[obj_id].shape[1] > self.limit:
+                #    idxs = rng.integers(low=0, 
+                #            high=self.point_cloud[obj_id].shape[1], size=self.limit)
+                #    self.point_cloud[obj_id] = self.point_cloud[obj_id][::50]
 
 
         if self.cam_K == None:
             print("Warning camera intrinsics not set.")
 
+    @iex
+    #@njit(parallel=True)
     def render_cloud(self, obj_id, R, t, image):
 
         ### FLIP Y, and Z coords
-        R = R@torch.tensor([
+        R = R@np.array([
                         [1, 0, 0],
                         [0, -1, 0],
-                        [0, 0, -1]], device='cpu', dtype=torch.float32)
+                        [0, 0, -1]], dtype=np.float32)
         
-        t = t.expand(self.point_cloud[obj_id].shape[0],-1)
+        #breakpoint()
+        #t=t[0]
+        #t = np.dstack((t,t,t))
         
-        P = (self.cam_K@(R@self.point_cloud[obj_id].T + t.T))
+        #P = (self.cam_K@(R@self.point_cloud[obj_id].T + t.T))
+        #P = self.cam_K_np@(R@self.point_cloud[obj_id].T + t[..., None].T)
+        #P = self.cam_K_np@(R@self.point_cloud[obj_id].T)
+        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
 
-        if P[0].max() >= self.cam_height or P[1].max() >= self.cam_width:
+        P = P / P[-1,:]
+
+        if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
             return
 
-        #import pdb; pdb.set_trace()
-        P = P / P[-1,:]
-        P = P.int()
-        #import pdb; pdb.set_trace()
+        P = np.array(P, dtype=int)
         #view_depth *= view_cam_info['depth_scale']
         #view_depth *= cfg.MODEL_SCALING # convert to meter scale from millimeter scale
         #view_depth/=view_depth.max()
-        P = P.cpu().numpy()
         
-        #image[P[0], P[1], :] = 1
-        image[P[1], P[0], :] = 1
-
-        #return view_depth
+        image[P[1], P[0], :] = 255
 
     def cloud_show(self, p):
         

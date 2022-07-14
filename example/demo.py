@@ -201,8 +201,8 @@ def main(obj_id):
     pipeline, rs_config, align = init_cam()
 
     #segment_method = 'bgsubtract'
-    #segment_method = 'maskrcnn'
-    segment_method = 'bgsMOG2'
+    segment_method = 'maskrcnn'
+    #segment_method = 'bgsMOG2'
     if segment_method == 'bgsubtract':
         bgsubtract=True
     elif segment_method == 'bgsMOG2':
@@ -229,13 +229,14 @@ def main(obj_id):
 
     timeit.endlog()
 
-    segmentator = agnostic_segmentation.load_model('checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
+    segmentator = agnostic_segmentation.load_model(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
 
     pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, 
             obj_codebook=obj_codebook, 
             model_net=model_net_ove6d,
             device=DEVICE)
 
+    inputs = {"image": None , "height": cfg.RENDER_HEIGHT, "width": cfg.RENDER_WIDTH}
 
     # Streaming loop
     try:
@@ -265,7 +266,10 @@ def main(obj_id):
                 plt.show()
                 import pdb; pdb.set_trace()
             elif segment_method == 'maskrcnn':
-                masks = segmentator(color_image)['instances'].get('pred_masks')[0]
+                masks = segmentator(color_image)['instances'].get('pred_masks')
+                #inputs['image']=torch.tensor(
+                #        color_image, device=DEVICE, dtype=torch.float32). permute(2,1,0)
+                #masks = segmentator.model([inputs])[0]['instances'].pred_masks
             elif segment_method == 'bgsMOG2':
                 mask = backSub.apply(color_image)
                 #import pdb; pdb.set_trace()
@@ -279,30 +283,27 @@ def main(obj_id):
             #   depth align to color on left
             #   depth on right
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
-            if mask.all() == None:
-                #mask = mask.cpu().numpy().astype(np.uint8)
-                mask = mask.numpy().astype(np.uint8)
-                masked_img = (color_image*0.9 + mask[...,None]*0.5*255).astype(np.uint8)
+            #if mask.all() == None:
+            #if not masks.is_empty():
+            if not len(masks) == 0:
+                #breakpoint()
+                mask = masks[0].cpu().numpy().astype(int)
 
                 obj_depth=torch.tensor((depth_image*mask*depth_scale).astype(np.float32)).squeeze()
                 R, t = pose_estimator.estimate_pose(
                             obj_depth=obj_depth,
-                            obj_mask=masks)
+                            obj_mask=masks[0])
 
-                #timeit.endlog()
-                #timeit.log("Rendering.")
-                dataset.render_cloud(obj_id=obj_id, R=R, t=t, image=color_image)
-                #images = np.hstack((color_image, masked_image))
-                #import pdb; pdb.set_trace()
-                #images = np.hstack((color_image, color_image*mask[...,None], depth_colormap*mask[...,None]))
-                #color_image = color_image.astype(float)
-                #color_image = color_image/color_image.max()
-                #images = np.hstack((
-                #    color_image,
-                #    color_image*mask[...,None],
-                #    depth_image*mask[...,None]
-                #    ))
-                images = color_image
+                timeit.endlog()
+                timeit.log("Rendering.")
+                dataset.render_cloud(obj_id=obj_id, 
+                        R=R.numpy().astype(np.float32), 
+                        t=t.numpy().astype(np.float32),
+                        image=color_image)
+
+                ma = np.dstack([mask,mask,mask])
+                images = np.hstack([ color_image, ma[:,:,::-1].astype(np.uint8)*255 ])
+
 
                 timeit.endlog()
 
@@ -314,8 +315,8 @@ def main(obj_id):
                 #images = color_image
             else:
                 #images = np.hstack((color_image, depth_colormap))
-                images = np.hstack((color_image, color_image, depth_colormap))
-            import pdb; pdb.set_trace()
+                images = np.hstack((color_image, color_image))
+            #import pdb; pdb.set_trace()
 
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
             cv2.imshow('Align Example', images)
@@ -324,6 +325,7 @@ def main(obj_id):
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
                 break
+
     finally:
         pipeline.stop()
 

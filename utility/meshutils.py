@@ -41,7 +41,6 @@ class Object3D(object):
     """Represents a graspable object."""
 
     def __init__(self, path, load_materials=False):
-        breakpoint()
         scene = trimesh.load(str(path))
         if isinstance(scene, trimesh.Trimesh):
             scene = trimesh.Scene(scene)

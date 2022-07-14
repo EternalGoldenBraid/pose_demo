@@ -1,5 +1,4 @@
 import os
-from numba import njit, prange
 import time
 import glob
 import math
@@ -150,7 +149,6 @@ def viewpoint_sampling_and_encoding(model_func, obj_model_file, obj_diameter, co
     infer_costs = list()
     intrinsic = intrinsic.to(device)
 
-    breakpoint()
     obj_mesh, _ = rendering.load_object(obj_model_file, resize=False, recenter=False)
     obj_mesh.rescale(scale=render_obj_scale) # from millimeter normalize to meter
 
@@ -226,6 +224,7 @@ def OVE6D_codebook_generation(model_func, codebook_dir, dataset, config, device)
 
     num_objects = len(obj_model_files)
 
+    ### TODO Change this to load the existing files.
     if len(codebook_files) == num_objects:  # pre-built codebooks exist, load it
         for obj_cbk_file in codebook_files:
             cbk_name = obj_cbk_file.split('/')[-1]
