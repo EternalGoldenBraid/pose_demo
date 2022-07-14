@@ -12,7 +12,7 @@ from ipdb import iex
 
 class Dataset():
     def __init__(self, data_dir, cfg, 
-            cam_K, cam_height, cam_width):
+            cam_K, cam_height, cam_width, n_points):
         self.model_dir = Path(data_dir) / 'models_eval'
         self.cam_file = Path(data_dir) / 'camera.json'
         self.cam_K = cam_K
@@ -25,7 +25,7 @@ class Dataset():
         self.point_cloud = dict()
         self.object_renderer = None
         self.cfg = cfg
-        self.limit = 2000 # Number of points
+        self.n_points: int = n_points # Number of points
 
         self.model_info_file = self.model_dir / 'models_info.json'
         #self.model_info_file = os.path.abspath(os.path.join(
@@ -33,7 +33,7 @@ class Dataset():
         with open(self.model_info_file, 'r') as model_f:
             self.model_info = json.load(model_f)
         
-        #rng = default_rng()
+        rng = default_rng()
         for model_file in sorted(self.model_dir.iterdir()):
             #breakpoint()
             if str(model_file).endswith('.ply'):
@@ -43,10 +43,12 @@ class Dataset():
                 self.point_cloud[obj_id], _ = load_ply(model_file)
                 self.point_cloud[obj_id] = self.point_cloud[obj_id].numpy()
 
-                #if self.point_cloud[obj_id].shape[1] > self.limit:
-                #    idxs = rng.integers(low=0, 
-                #            high=self.point_cloud[obj_id].shape[1], size=self.limit)
-                #    self.point_cloud[obj_id] = self.point_cloud[obj_id][::50]
+                #import pdb; pdb.set_trace() 
+                if self.point_cloud[obj_id].shape[0] > self.n_points:
+                    idxs = rng.integers(low=0, 
+                            high=self.point_cloud[obj_id].shape[0], size=self.n_points)
+                    self.point_cloud[obj_id] = self.point_cloud[obj_id][idxs]
+
 
 
         if self.cam_K == None:
@@ -57,10 +59,14 @@ class Dataset():
     def render_cloud(self, obj_id, R, t, image):
 
         ### FLIP Y, and Z coords
-        R = R@np.array([
+        #R = R@np.array([
+        #                [1, 0, 0],
+        #                [0, -1, 0],
+        #                [0, 0, -1]], dtype=np.float32)
+        R = R.dot(np.array([
                         [1, 0, 0],
                         [0, -1, 0],
-                        [0, 0, -1]], dtype=np.float32)
+                        [0, 0, -1]], dtype=np.float32))
         
         #breakpoint()
         #t=t[0]
