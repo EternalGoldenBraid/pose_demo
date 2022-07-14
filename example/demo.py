@@ -201,31 +201,40 @@ def main(args):
     timeit.log("Realsense initialization.")
     pipeline, rs_config, align = init_cam()
 
-    #segment_method = 'bgsubtract'
-    segment_method = 'maskrcnn'
-    #segment_method = 'contour'
-    #segment_method = 'bgsMOG2'
+    ### Segmentation
+    # TODO: ADD TYPES
+    # Segmentator needs to return:
+    # mask_gpu: torch.tensor on gpu
+    # mask_gpu: numpy.array
     bgsubtract = False
-    if segment_method == 'bgsubtract':
+    if args.segment_method == 'bgsubtract':
         bgsubtract=True
         segmentator = lambda x, y: x-y, None
-    elif segment_method == 'bgsMOG2':
-        backSub = cv2.createBackgroundSubtractorMOG2()
-    elif segment_method == 'contour':
-        segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None
+    elif args.segment_method == 'bgsKNN':
         def segmentator_(image):
-            #import pdb; pdb.set_trace()
-            mask = contour_segmentation.ContourSegmentator().get_mask(image)
-            #mask = 
+            mask = cv2.createBackgroundSubtractorKNN().apply(image)
+            return mask, torch.tensor(mask, device=DEVICE)
         segmentator = segmentator_
-    elif segment_method == 'maskrcnn':
+    elif args.segment_method == 'bgsMOG2':
+        def segmentator_(image):
+            mask = cv2.createBackgroundSubtractorMOG2().apply(image)
+            return mask, torch.tensor(mask, device=DEVICE)
+        segmentator = segmentator_
+    elif args.segment_method == 'contour':
+        #segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None
+        def segmentator_(image):
+            mask = contour_segmentation.ContourSegmentator().get_mask(image)
+            return mask, torch.tensor(mask, device=DEVICE)
+        segmentator = segmentator_
+    elif args.segment_method == 'maskrcnn':
         none_array = np.array(())
         model_seg = agnostic_segmentation.load_model(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
         def segmentator_(image, model=model_seg):
             mask_gpu = model(image)['instances'].get('pred_masks')
             if mask_gpu.numel() == 0:
                 return none_array, None
-            mask_cpu = mask_gpu[0].to(non_blocking=True, copy=True, device='cpu').numpy().astype(int)
+            mask_cpu = mask_gpu[0].to(
+                    non_blocking=True, copy=True, device='cpu').numpy().astype(int)
             return mask_cpu, mask_gpu[0]
         #segmentator = lambda image, model=model_seg: model(image)['instances'].get('pred_masks')
         segmentator = segmentator_
@@ -238,7 +247,9 @@ def main(args):
 
     timeit.endlog()
     timeit.log("Loading data.")
-    dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
+    #dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
+    dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
+
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
                 n_points=args.n_points)
@@ -273,26 +284,24 @@ def main(args):
 
             # Get frameset of color and depth
             frames = pipeline.wait_for_frames()
-    
             # Align the depth frame to color frame
             aligned_frames = align.process(frames)
-    
             # Get aligned frames
-            aligned_depth_frame = aligned_frames.get_depth_frame() # aligned_depth_frame is a 640x480 depth image
+            # aligned_depth_frame is a 640x480 depth image
+            aligned_depth_frame = aligned_frames.get_depth_frame() 
             color_frame = aligned_frames.get_color_frame()
-    
             # Validate that both frames are valid
             if not aligned_depth_frame or not color_frame:
                 continue
-    
             depth_image = np.asanyarray(aligned_depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
     
-            timeit.log("Pose estimation.")
+            #timeit.log("Pose estimation.")
+            #breakpoint()
             mask, mask_gpu = segmentator(color_image)
 
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
-            if mask.size:
+            if mask.size != 0:
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
                 R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
                             obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
@@ -302,13 +311,16 @@ def main(args):
                 #else:
                 #    continue
 
-                timeit.endlog()
+                #timeit.endlog()
                 #timeit.log("Rendering.")
                 dataset.render_cloud(obj_id=obj_id, 
                         R=R.numpy().astype(np.float32), 
                         t=t.numpy().astype(np.float32),
                         image=color_image)
-                images = np.hstack([ color_image, (mask[...,None].astype(np.uint8)*255).repeat(repeats=3,axis=2) ])
+                breakpoint()
+                images = np.hstack([ 
+                    color_image, (mask[...,None].astype(np.uint8)).repeat(repeats=3,axis=2) ])
+                    #color_image, (mask[...,None].astype(np.uint8)*255).repeat(repeats=3,axis=2) ])
                 #timeit.endlog()
 
                 #est_depth = dataset.render_depth(obj_id=obj_id, R=R, t=t, mesh=obj_codebook['obj_mesh'])
@@ -337,14 +349,24 @@ def main(args):
 if __name__=="__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Superimpose rotated pointcloud onto video.')
+    parser = argparse.ArgumentParser(prog='demo',
+            description='Superimpose rotated pointcloud onto video.')
     parser.add_argument('--obj_id',
                         type=int, required=False,default=1,
                         help='Object index: {box, basket, headphones}')
-    parser.add_argument('--buffer_size', type=int, required=False, default=3,
+    parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
+                        type=int, required=False, default=3,
                         help='Frame buffer for smoothing.')
-    parser.add_argument('--n_points', type=int, required=False, default=2000,
+    parser.add_argument('-n', '--n_points', dest='n_points',
+                        type=int, required=False, default=2000,
                         help='Number of points for cloud/mesh.')
+    parser.add_argument('-s', '--segmentation', dest='segment_method',
+                        required=False, default='maskrcnn',
+                        choices = ['bgsubtract', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
+                        help="""Method of segmentation.
+                        contour: OpenCV based edge detection ...,
+                        TODO:
+                        """)
     
     args = parser.parse_args()
     

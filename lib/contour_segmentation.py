@@ -58,6 +58,7 @@ class ContourSegmentator():
 if __name__=='__main__':
 
     # initialize video from the webcam
+    #video = cv2.VideoCapture(cv2.CAP_V4L2)
     video = cv2.VideoCapture(0)
     seg = ContourSegmentator()
     while True:

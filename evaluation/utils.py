@@ -282,7 +282,7 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
     obj_diameter = obj_codebook['diameter']
     
     bg_timer = time.time()
-    #obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
+    obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
     bg_cost = time.time() - bg_timer
     prep_timer = time.time()
     obj_mask[obj_depth<0] = 0
