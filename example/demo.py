@@ -1,15 +1,16 @@
 import os
+from time import perf_counter
+import sys
+import warnings
+import json
+from itertools import product
+from pathlib import Path
 from numba import njit, prange
 import cv2
-import sys
-import json
 import math
-import time
 import torch
-import warnings
 import numpy as np
 from PIL import Image, ImageDraw
-from pathlib import Path
 import pyrealsense2 as rs
 from scipy import stats
 
@@ -28,7 +29,8 @@ sys.path.append(base_path)
 
 from utility import timeit
 from lib import (rendering, network,
-        agnostic_segmentation, contour_segmentation)
+        agnostic_segmentation, contour_segmentation,
+        triangulate)
 
 from lib.render_cloud import load_cloud, render_cloud
 
@@ -181,7 +183,42 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
 
     print("Camera intrinsics:", K)
 
-    return depth_scale, K, aligned_depth_frame
+    return depth_scale, K, np.asanyarray(color_frame.get_data())
+
+
+@iex
+def rgb_hsi(im):
+
+    #B = im[:,:,0];G = im[:,:,1];R = im[:,:,2]
+    B = im[:,:,2];G = im[:,:,1];R = im[:,:,0]
+    if im.shape[-1] != 3:
+        print("Expected HxWx3, but axis 3 != 3")
+        return False
+    I = 1/3*(R+G+B)
+    S = 1- 3*np.min(im, axis=2)/I
+    S[S<0] = 0; S[S>0.999] = 1;
+
+    #H = np.empty_like(I)
+    H = np.arccos( 1/2*((R-G)+(R-B))/np.sqrt((R-G)**2+(R-B)*(G-B)) )
+    H_idx = B <= G
+    H[~H_idx] = 360*np.pi/180- H[~H_idx]
+
+    #H[not H_idx] = 360 - H
+
+    I = I.astype(int)
+    S = S.astype(int)*100
+    H = (H*180/np.pi).astype(int)
+    H[H<0] = 0; H[H>0.999] = 1;
+    #im_hsi = np.stack((H,S,I), axis=-1)
+    #im_hsi = np.stack((I,S,H*255), axis=-1)
+    im_ish = np.stack((I,S,H), axis=-1)
+    plt.imshow(np.concatenate((im_ish, im[:,:,::-1]), axis=1));plt.show()
+    import pdb; pdb.set_trace()
+
+    return im_ish
+
+
+    
     
 #@njit(parallel=True)
 def main(args):
@@ -198,7 +235,7 @@ def main(args):
     cfg.RANK_NUM_TOPK = 5
 
 
-    timeit.log("Realsense initialization.")
+   #timeit.log("Realsense initialization.")
     pipeline, rs_config, align = init_cam()
 
     ### Segmentation
@@ -207,9 +244,53 @@ def main(args):
     # mask_gpu: torch.tensor on gpu
     # mask_gpu: numpy.array
     bgsubtract = False
-    if args.segment_method == 'bgsubtract':
-        bgsubtract=True
-        segmentator = lambda x, y: x-y, None
+    #background = np.empty((cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH, 3))
+    first_frame = np.empty((cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH, 3), dtype=np.uint8)
+    if args.segment_method == 'bgs':
+        def segmentator_(image, background=first_frame, eps=4):
+            ##mask = np.exp(image - background)
+            #mask = np.abs((image - background)).astype(int)[:,:,0]
+            ##plt.imshow(mask); plt.show()
+            #print(f"BEFORE. sum: {mask.sum()}, mean: {mask.mean()}")
+            ##mask[mask>0+eps] = 1
+            ##mask[mask<=0+eps] = 0
+            #mask[mask>+eps] = 1
+            #mask[mask<=0+eps] = 0
+            #print(mask.sum())
+            ##plt.imshow(np.hstack( (image.astype(int), background.astype(int),
+            ##    255*mask.astype(int)[...,None].repeat(repeats=3,axis=2)) ) )
+            ##plt.show()
+            cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
+            import pdb; pdb.set_trace()
+            cv2.imshow('Align Example',
+                    255*mask.astype(np.uint8))
+            return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
+        segmentator = segmentator_
+    if args.segment_method == 'bgs_hsv':
+        def segmentator_(image, background=first_frame, eps=4):
+            image = image*1./255; image=image.astype(np.float32)
+            im = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
+            sub = im.copy()
+            #sub= im[im[:,:,0] > 170 and im[:,:,0] < 240] = 0
+            #import pdb; pdb.set_trace()
+            center = 180; eps = 1
+            #low = 170; up = 270
+            low = center - eps; up = center + eps
+            sub[im[:,:,0] > low] = 0; sub[im[:,:,0] <= 220] = 0
+            sub[im[:,:,0] <= low] = 1; sub[im[:,:,0] > up] = 1
+            mask = cv2.cvtColor(sub, code=cv2.COLOR_HSV2BGR)
+
+            image = 255*image.astype(int); im = im.astype(int);
+            sub = sub.astype(int); mask = mask.astype(int);
+            plt.imshow(np.concatenate(
+                (image, im, sub*255, mask*255), axis=1))
+            plt.show(block=False)
+            import pdb; pdb.set_trace()
+            cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
+            cv2.imshow('Align Example',
+                    np.concatenate((image, im, mask), axis=1))
+            return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
+        segmentator = segmentator_
     elif args.segment_method == 'bgsKNN':
         def segmentator_(image):
             mask = cv2.createBackgroundSubtractorKNN().apply(image)
@@ -234,7 +315,7 @@ def main(args):
             if mask_gpu.numel() == 0:
                 return none_array, None
             mask_cpu = mask_gpu[0].to(
-                    non_blocking=True, copy=True, device='cpu').numpy().astype(int)
+                    non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
             return mask_cpu, mask_gpu[0]
         #segmentator = lambda image, model=model_seg: model(image)['instances'].get('pred_masks')
         segmentator = segmentator_
@@ -242,11 +323,12 @@ def main(args):
         print("Invalid segmentation option")
         return -1
 
-    depth_scale, cam_K, background = get_scale_intrinsics(pipeline=pipeline, 
+    depth_scale, cam_K, _ = get_scale_intrinsics(pipeline=pipeline, 
             config=rs_config, align=align, bgsubtract=bgsubtract)
+    #first_frame[:] = _
 
-    timeit.endlog()
-    timeit.log("Loading data.")
+   #timeit.endlog()
+   #timeit.log("Loading data.")
     #dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
     dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
 
@@ -254,24 +336,18 @@ def main(args):
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
                 n_points=args.n_points)
 
-
     model_path = 'checkpoints'
     model_file = "OVE6D_pose_model.pth"
     model_net_ove6d = load_model_ove6d(model_path=model_path, model_file=model_file)
 
-
     obj_id: int = args.obj_id
     obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
 
-    timeit.endlog()
-
-
+   #timeit.endlog()
     pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, 
             obj_codebook=obj_codebook, 
             model_net=model_net_ove6d,
             device=DEVICE)
-
-    inputs = {"image": None , "height": cfg.RENDER_HEIGHT, "width": cfg.RENDER_WIDTH}
 
     # Streaming loop
     count: int = -1
@@ -279,7 +355,6 @@ def main(args):
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
     try:
         while True:
-
             count += 1
 
             # Get frameset of color and depth
@@ -295,6 +370,12 @@ def main(args):
                 continue
             depth_image = np.asanyarray(aligned_depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
+
+            ### TODO: Get this out from here..?
+            if count == 0 and args.segment_method=='bgs':
+                input("Capturing mask")
+                first_frame[:] = color_image
+                continue
     
             #timeit.log("Pose estimation.")
             #breakpoint()
@@ -313,13 +394,22 @@ def main(args):
 
                 #timeit.endlog()
                 #timeit.log("Rendering.")
-                dataset.render_cloud(obj_id=obj_id, 
+                x, y = dataset.render_cloud(obj_id=obj_id, 
                         R=R.numpy().astype(np.float32), 
                         t=t.numpy().astype(np.float32),
                         image=color_image)
-                breakpoint()
+                tri = cv2.Subdiv2D((0, 0, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH))
+                tri.insert(np.column_stack((x, y)))
+
+                triangulate.draw_delaunay(img=color_image, subdiv=tri,
+                        delaunay_color=(255, 255, 255) ) 
+                #La = np.abs(cv2.Laplacian(color_image, ddepth=3))
+                #La = cv2.convertScaleAbs(cv2.Laplacian(color_image, ddepth=3))
+                #import pdb; pdb.set_trace()
                 images = np.hstack([ 
-                    color_image, (mask[...,None].astype(np.uint8)).repeat(repeats=3,axis=2) ])
+                    #color_image, color_image*(mask[...,None].repeat(repeats=3,axis=2)) ])
+                    color_image, (255*mask[...,None].repeat(repeats=3,axis=2)) ])
+                    #cv2.convertScaleAbs(color_image.sim(dim=-1)), (mask[...,None]) ])
                     #color_image, (mask[...,None].astype(np.uint8)*255).repeat(repeats=3,axis=2) ])
                 #timeit.endlog()
 
@@ -335,6 +425,7 @@ def main(args):
                 images = np.hstack((color_image, color_image))
             #import pdb; pdb.set_trace()
 
+            #continue
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
             cv2.imshow('Align Example', images)
             key = cv2.waitKey(1)
@@ -362,7 +453,7 @@ if __name__=="__main__":
                         help='Number of points for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',
                         required=False, default='maskrcnn',
-                        choices = ['bgsubtract', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
+                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
                         help="""Method of segmentation.
                         contour: OpenCV based edge detection ...,
                         TODO:

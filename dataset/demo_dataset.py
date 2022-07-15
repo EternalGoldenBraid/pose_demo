@@ -1,6 +1,7 @@
 import os
 from numba import njit
 import numpy as np
+from scipy.spatial import Delaunay
 import json
 import torch
 from pathlib import Path
@@ -88,6 +89,12 @@ class Dataset():
         #view_depth/=view_depth.max()
         
         image[P[1], P[0], :] = 255
+        #tri = Delaunay(P[1], P[0])
+
+        #return P[1], P[0], tri.simplices
+        # TODO::: CONVERESIONS
+        return P[0].astype(int).astype(np.uint8), P[1].astype(int).astype(np.uint8)
+        #return P[0:2,:]
 
     def cloud_show(self, p):
         
