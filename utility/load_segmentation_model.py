@@ -83,13 +83,17 @@ def load(model, cfg, device):
         segmentator = segmentator_
     elif model == 'point_rend':
         none_array = np.array(())
+        print("BASE:",base_path)
         model_seg = detectron_segmentation.load_model_point_rend(base_path+'/checkpoints/model_final_ba17b9_pointrend.pkl',
                 config_yaml=base_path+'/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
+                #config_yaml='configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
                 confidence=0.7, base_path=base_path)
         def segmentator_(image, model=model_seg):
-            mask_gpu = model(image)['instances'].get('pred_masks')
-            if mask_gpu.numel() == 0:
+            pred = model(image)['instances']
+            import pdb; pdb.set_trace()
+            if not pred.has('pred_masks'):
                 return none_array, None
+            mask_gpu = pred.get('pred_masks')
             mask_cpu = mask_gpu[0].to(
                     non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
             return mask_cpu, mask_gpu[0]

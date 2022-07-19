@@ -28,10 +28,8 @@ warnings.filterwarnings("ignore")
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-from utility import timeit
-from lib import (rendering, network,
-        agnostic_segmentation, contour_segmentation,
-        triangulate)
+from utility import timeit, load_segmentation_model
+from lib import (rendering, network, triangulate)
 
 from lib.render_cloud import load_cloud, render_cloud
 
@@ -142,7 +140,7 @@ def init_cam():
 
     return pipeline, config, align
 
-def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
+def get_scale_intrinsics(pipeline,config, align):
 
     # Start streaming
     profile = pipeline.start(config)
@@ -161,8 +159,6 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
     ### QUERY FOR FRAMES FOR INTRINSICS. 
     ### TODO: Query sensor conf directly instead of loading a frame first.
     # Get frameset of color and depth
-    if bgsubtract:
-        input("Capture background. Enter")
     frames = pipeline.wait_for_frames()
     
     # Align the depth frame to color frame
@@ -206,91 +202,10 @@ def main(args):
     pipeline, rs_config, align = init_cam()
 
     ### Segmentation
-    # TODO: ADD TYPES
-    # Segmentator needs to return:
-    # mask_gpu: torch.tensor on gpu
-    # mask_gpu: numpy.array
-    bgsubtract = False
-    #background = np.empty((cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH, 3))
-    first_frame = np.empty((cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH, 3), dtype=np.uint8)
-    if args.segment_method == 'bgs':
-        def segmentator_(image, background=first_frame, eps=4):
-            ##mask = np.exp(image - background)
-            #mask = np.abs((image - background)).astype(int)[:,:,0]
-            ##plt.imshow(mask); plt.show()
-            #print(f"BEFORE. sum: {mask.sum()}, mean: {mask.mean()}")
-            ##mask[mask>0+eps] = 1
-            ##mask[mask<=0+eps] = 0
-            #mask[mask>+eps] = 1
-            #mask[mask<=0+eps] = 0
-            #print(mask.sum())
-            ##plt.imshow(np.hstack( (image.astype(int), background.astype(int),
-            ##    255*mask.astype(int)[...,None].repeat(repeats=3,axis=2)) ) )
-            ##plt.show()
-            cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
-            import pdb; pdb.set_trace()
-            cv2.imshow('Align Example',
-                    255*mask.astype(np.uint8))
-            return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
-        segmentator = segmentator_
-    if args.segment_method == 'bgs_hsv':
-        def segmentator_(image, background=first_frame, eps=4, hsv_c=2,
-                crop_w=40, crop_h=30):
-            #im_hsv = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
-            im_hsv = cv2.cvtColor(
-                    1./255*image.astype(np.float32), code=cv2.COLOR_BGR2HSV_FULL)
-            sub = im_hsv.copy()
-            low = 140; up = 220
-            mask = cv2.inRange(sub, np.array([low,0,0]), np.array([up,1,1]))
-
-            center = (cfg.RENDER_WIDTH//2, cfg.RENDER_HEIGHT//2)
-            radius = cfg.RENDER_WIDTH // 4
-            color = 255
-            thickness = -1
-            line_type = 8
-            #circle = cv2.circle(mask, center, radius, color, thickness, line_type)
-            circle = cv2.circle(np.zeros_like(mask, dtype=np.uint8), center, radius, color, thickness, line_type)//255
-            mask = mask//255; mask=mask.astype(bool)
-            mask = ~mask
-            mask = circle*mask
-
-            return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
-
-        segmentator = segmentator_
-    elif args.segment_method == 'bgsKNN':
-        def segmentator_(image):
-            mask = cv2.createBackgroundSubtractorKNN().apply(image)
-            return mask, torch.tensor(mask, device=DEVICE)
-        segmentator = segmentator_
-    elif args.segment_method == 'bgsMOG2':
-        def segmentator_(image):
-            mask = cv2.createBackgroundSubtractorMOG2().apply(image)
-            return mask, torch.tensor(mask, device=DEVICE)
-        segmentator = segmentator_
-    elif args.segment_method == 'contour':
-        #segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None
-        def segmentator_(image):
-            mask = contour_segmentation.ContourSegmentator().get_mask(image)
-            return mask, torch.tensor(mask, device=DEVICE)
-        segmentator = segmentator_
-    elif args.segment_method == 'maskrcnn':
-        none_array = np.array(())
-        model_seg = agnostic_segmentation.load_model(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
-        def segmentator_(image, model=model_seg):
-            mask_gpu = model(image)['instances'].get('pred_masks')
-            if mask_gpu.numel() == 0:
-                return none_array, None
-            mask_cpu = mask_gpu[0].to(
-                    non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
-            return mask_cpu, mask_gpu[0]
-        #segmentator = lambda image, model=model_seg: model(image)['instances'].get('pred_masks')
-        segmentator = segmentator_
-    else: 
-        print("Invalid segmentation option")
-        return -1
+    segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
     depth_scale, cam_K, _ = get_scale_intrinsics(pipeline=pipeline, 
-            config=rs_config, align=align, bgsubtract=bgsubtract)
+            config=rs_config, align=align)
     #first_frame[:] = _
 
    #timeit.endlog()

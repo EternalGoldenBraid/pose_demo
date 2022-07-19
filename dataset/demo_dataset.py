@@ -1,17 +1,17 @@
 import os
+import json
+from pathlib import Path
 from numba import njit
 import numpy as np
 from scipy.spatial import Delaunay
-import json
 import torch
-from pathlib import Path
 from pytorch3d.io import load_ply
-from lib import (rendering, network,
-        agnostic_segmentation)
-#from lib.Sim3DR import RenderPipeline
-from lib.Sim3DR.Sim3DR import rasterize, get_normal
 from numpy.random import default_rng
 from ipdb import iex
+
+from lib import rendering
+#from lib.Sim3DR import RenderPipeline
+from lib.Sim3DR.Sim3DR import rasterize, get_normal
 
 class Dataset():
     def __init__(self, data_dir, cfg, 

@@ -39,13 +39,14 @@ def load_model_point_rend(model_path='../checkpoints/model_final_ba17b9_pointren
     cfg = get_cfg()
     point_rend.add_pointrend_config(cfg)
     # Load a config from file
-    #cfg.merge_from_file(config_yaml)
+    #cfg.merge_from_file(base_path+'/configs/Base-RCNN-FPN.yaml')
+    cfg.merge_from_file(config_yaml)
     #cfg.merge_from_file(model_zoo.get_config_file("InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml"))
-    cfg.merge_from_file(base_path+'/configs/Base-RCNN-FPN.yaml')
 
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = confidence  # set threshold for this model
     # Use a model from PointRend model zoo: https://github.com/facebookresearch/detectron2/tree/master/projects/PointRend#pretrained-models
     cfg.MODEL.WEIGHTS = model_path
+    #cfg.MODEL.WEIGHTS = "detectron2://PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco/164955410/model_final_edd263.pkl"
     predictor = DefaultPredictor(cfg)
 
     return predictor

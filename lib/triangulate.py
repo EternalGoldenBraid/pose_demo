@@ -1,13 +1,11 @@
 import os
-from numba import njit
-import numpy as np
 from scipy.spatial import Delaunay
 import json
-import torch
 from pathlib import Path
+from numba import njit
+import numpy as np
+import torch
 from pytorch3d.io import load_ply
-from lib import (rendering, network,
-        agnostic_segmentation)
 from numpy.random import default_rng
 from ipdb import iex
 import cv2
@@ -34,6 +32,7 @@ def draw_delaunay(img, subdiv, delaunay_color ):
     triangleList = subdiv.getTriangleList();
     size = img.shape
 
+    #import pdb; pdb.set_trace()
     r = (0, 0, size[1], size[0])
     for t in triangleList :
         t = t.astype(int).astype(np.uint8)
