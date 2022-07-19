@@ -126,7 +126,7 @@ def init_cam():
         print("The demo requires Depth camera with Color sensor")
         exit(0)
     
-    framerate = 30
+    framerate = 60
     config.enable_stream(rs.stream.depth, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.z16, framerate)
     #config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
     config.enable_stream(rs.stream.color, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.bgr8, framerate)
@@ -184,41 +184,6 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
     print("Camera intrinsics:", K)
 
     return depth_scale, K, np.asanyarray(color_frame.get_data())
-
-
-@iex
-def rgb_hsi(im):
-
-    #B = im[:,:,0];G = im[:,:,1];R = im[:,:,2]
-    B = im[:,:,2];G = im[:,:,1];R = im[:,:,0]
-    if im.shape[-1] != 3:
-        print("Expected HxWx3, but axis 3 != 3")
-        return False
-    I = 1/3*(R+G+B)
-    S = 1- 3*np.min(im, axis=2)/I
-    S[S<0] = 0; S[S>0.999] = 1;
-
-    #H = np.empty_like(I)
-    H = np.arccos( 1/2*((R-G)+(R-B))/np.sqrt((R-G)**2+(R-B)*(G-B)) )
-    H_idx = B <= G
-    H[~H_idx] = 360*np.pi/180- H[~H_idx]
-
-    #H[not H_idx] = 360 - H
-
-    I = I.astype(int)
-    S = S.astype(int)*100
-    H = (H*180/np.pi).astype(int)
-    H[H<0] = 0; H[H>0.999] = 1;
-    #im_hsi = np.stack((H,S,I), axis=-1)
-    #im_hsi = np.stack((I,S,H*255), axis=-1)
-    im_ish = np.stack((I,S,H), axis=-1)
-    plt.imshow(np.concatenate((im_ish, im[:,:,::-1]), axis=1));plt.show()
-    import pdb; pdb.set_trace()
-
-    return im_ish
-
-
-    
     
 #@njit(parallel=True)
 def main(args):
@@ -233,6 +198,7 @@ def main(args):
     cfg.RENDER_NUM_VIEWS = 4000 # reduce this if out of GPU memory,
     cfg.VP_NUM_TOPK = 50   # the retrieval number of viewpoint 
     cfg.RANK_NUM_TOPK = 5
+    cfg.USE_ICP = args.icp
 
 
    #timeit.log("Realsense initialization.")
@@ -267,29 +233,28 @@ def main(args):
             return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
         segmentator = segmentator_
     if args.segment_method == 'bgs_hsv':
-        def segmentator_(image, background=first_frame, eps=4):
-            image = image*1./255; image=image.astype(np.float32)
-            im = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
-            sub = im.copy()
-            #sub= im[im[:,:,0] > 170 and im[:,:,0] < 240] = 0
-            #import pdb; pdb.set_trace()
-            center = 180; eps = 1
-            #low = 170; up = 270
-            low = center - eps; up = center + eps
-            sub[im[:,:,0] > low] = 0; sub[im[:,:,0] <= 220] = 0
-            sub[im[:,:,0] <= low] = 1; sub[im[:,:,0] > up] = 1
-            mask = cv2.cvtColor(sub, code=cv2.COLOR_HSV2BGR)
+        def segmentator_(image, background=first_frame, eps=4, hsv_c=2,
+                crop_w=40, crop_h=30):
+            #im_hsv = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
+            im_hsv = cv2.cvtColor(
+                    1./255*image.astype(np.float32), code=cv2.COLOR_BGR2HSV_FULL)
+            sub = im_hsv.copy()
+            low = 100; up = 250
+            mask = cv2.inRange(sub, np.array([low,0,0]), np.array([up,1,1]))
 
-            image = 255*image.astype(int); im = im.astype(int);
-            sub = sub.astype(int); mask = mask.astype(int);
-            plt.imshow(np.concatenate(
-                (image, im, sub*255, mask*255), axis=1))
-            plt.show(block=False)
-            import pdb; pdb.set_trace()
-            cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
-            cv2.imshow('Align Example',
-                    np.concatenate((image, im, mask), axis=1))
+            center = (cfg.RENDER_WIDTH//2, cfg.RENDER_HEIGHT//2)
+            radius = cfg.RENDER_WIDTH // 4
+            color = 255
+            thickness = -1
+            line_type = 8
+            #circle = cv2.circle(mask, center, radius, color, thickness, line_type)
+            circle = cv2.circle(np.zeros_like(mask, dtype=np.uint8), center, radius, color, thickness, line_type)//255
+            mask = mask//255; mask=mask.astype(bool)
+            mask = ~mask
+            mask = circle*mask
+
             return mask.astype(np.uint8), torch.tensor(mask, device=DEVICE)
+
         segmentator = segmentator_
     elif args.segment_method == 'bgsKNN':
         def segmentator_(image):
@@ -343,7 +308,7 @@ def main(args):
     obj_id: int = args.obj_id
     obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
 
-   #timeit.endlog()
+    #timeit.endlog()
     pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, 
             obj_codebook=obj_codebook, 
             model_net=model_net_ove6d,
@@ -353,6 +318,7 @@ def main(args):
     count: int = -1
     buffer_size: int = args.buffer_size
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
+    done = True
     try:
         while True:
             count += 1
@@ -383,32 +349,51 @@ def main(args):
 
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if mask.size != 0:
-                ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
-                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
-                #if count % args.buffer_size == 0:
-                #    count = -1
-                #else:
-                #    continue
+                to_render = False
+                if to_render == True:
+                    ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
+                    R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
+                                obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
-                #timeit.endlog()
-                #timeit.log("Rendering.")
-                x, y = dataset.render_cloud(obj_id=obj_id, 
-                        R=R.numpy().astype(np.float32), 
-                        t=t.numpy().astype(np.float32),
-                        image=color_image)
-                tri = cv2.Subdiv2D((0, 0, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH))
-                tri.insert(np.column_stack((x, y)))
+                    #if count % args.buffer_size == 0:
+                    #    count = -1
+                    #else:
+                    #    continue
 
-                triangulate.draw_delaunay(img=color_image, subdiv=tri,
-                        delaunay_color=(255, 255, 255) ) 
+                    #timeit.endlog()
+                    #timeit.log("Rendering.")
+
+                    #done = dataset.render_cloud(obj_id=obj_id, 
+                    #        R=R.numpy().astype(np.float32), 
+                    #        t=t.numpy().astype(np.float32),
+                    #        image=color_image)
+
+                    color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                            R=R.numpy().astype(np.float32), 
+                            t=t.numpy().astype(np.float32),
+                            image=color_image)
+
+                # Point cloud matching failed.
+                if not done: continue
+
+                #import pdb; pdb.set_trace()
+                if args.render_mesh:
+                    pass
+
+                    #tri = cv2.Subdiv2D((0, 0, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH))
+                    #tri.insert(np.concatenate((x[...,None], y[...,None]), axis=1))
+                    ##tri.insert(np.column_stack((x, y)))
+
+                    #triangulate.draw_delaunay(img=color_image, subdiv=tri,
+                    #        delaunay_color=(255, 255, 255) ) 
                 #La = np.abs(cv2.Laplacian(color_image, ddepth=3))
                 #La = cv2.convertScaleAbs(cv2.Laplacian(color_image, ddepth=3))
-                #import pdb; pdb.set_trace()
+
                 images = np.hstack([ 
                     #color_image, color_image*(mask[...,None].repeat(repeats=3,axis=2)) ])
-                    color_image, (255*mask[...,None].repeat(repeats=3,axis=2)) ])
+                    #color_image, (255*mask[...,None].repeat(repeats=3,axis=2)) ])
+                    color_image, color_image*(mask[...,None]) ])
                     #cv2.convertScaleAbs(color_image.sim(dim=-1)), (mask[...,None]) ])
                     #color_image, (mask[...,None].astype(np.uint8)*255).repeat(repeats=3,axis=2) ])
                 #timeit.endlog()
@@ -442,7 +427,7 @@ if __name__=="__main__":
     
     parser = argparse.ArgumentParser(prog='demo',
             description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('--obj_id',
+    parser.add_argument('-o', '--obj_id', dest='obj_id',
                         type=int, required=False,default=1,
                         help='Object index: {box, basket, headphones}')
     parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
@@ -458,6 +443,14 @@ if __name__=="__main__":
                         contour: OpenCV based edge detection ...,
                         TODO:
                         """)
+    ### Python < 3.9 TODO: Set this up.
+    #parser.add_argument('--feature', action='store_true', dest='render_mesh')
+    #parser.add_argument('--no-feature', dest='render_mesh', action='store_false')
+    #parser.set_defaults(render_mesh=True)
+    ### Python >= 3.9
+    parser.add_argument('-rm', '--render-mesh', dest='render_mesh', action=argparse.BooleanOptionalAction)
+    parser.add_argument('-icp', dest='icp', action=argparse.BooleanOptionalAction)
+
     
     args = parser.parse_args()
     

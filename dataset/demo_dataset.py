@@ -8,6 +8,8 @@ from pathlib import Path
 from pytorch3d.io import load_ply
 from lib import (rendering, network,
         agnostic_segmentation)
+#from lib.Sim3DR import RenderPipeline
+from lib.Sim3DR.Sim3DR import rasterize, get_normal
 from numpy.random import default_rng
 from ipdb import iex
 
@@ -24,6 +26,7 @@ class Dataset():
         self.obj_model_file = dict()
         self.obj_diameter = dict()
         self.point_cloud = dict()
+        self.faces = dict()
         self.object_renderer = None
         self.cfg = cfg
         self.n_points: int = n_points # Number of points
@@ -35,27 +38,31 @@ class Dataset():
             self.model_info = json.load(model_f)
         
         rng = default_rng()
+
+        ### TODO: Combine faces and verts into same container.
         for model_file in sorted(self.model_dir.iterdir()):
             #breakpoint()
             if str(model_file).endswith('.ply'):
                 obj_id = int(model_file.name.split('_')[-1].split('.')[0])
                 self.obj_model_file[obj_id] = model_file
                 self.obj_diameter[obj_id] = self.model_info[str(obj_id)]['diameter']
-                self.point_cloud[obj_id], _ = load_ply(model_file)
+                self.point_cloud[obj_id], self.faces[obj_id] = load_ply(model_file)
                 self.point_cloud[obj_id] = self.point_cloud[obj_id].numpy()
+                self.faces[obj_id] = self.faces[obj_id].numpy()
 
                 #import pdb; pdb.set_trace() 
                 if self.point_cloud[obj_id].shape[0] > self.n_points:
                     idxs = rng.integers(low=0, 
                             high=self.point_cloud[obj_id].shape[0], size=self.n_points)
                     self.point_cloud[obj_id] = self.point_cloud[obj_id][idxs]
+                    self.faces[obj_id] = self.faces[obj_id][idxs]
 
 
 
         if self.cam_K == None:
             print("Warning camera intrinsics not set.")
 
-    @iex
+    #@iex
     #@njit(parallel=True)
     def render_cloud(self, obj_id, R, t, image):
 
@@ -69,32 +76,48 @@ class Dataset():
                         [0, -1, 0],
                         [0, 0, -1]], dtype=np.float32))
         
-        #breakpoint()
-        #t=t[0]
-        #t = np.dstack((t,t,t))
-        
-        #P = (self.cam_K@(R@self.point_cloud[obj_id].T + t.T))
-        #P = self.cam_K_np@(R@self.point_cloud[obj_id].T + t[..., None].T)
-        #P = self.cam_K_np@(R@self.point_cloud[obj_id].T)
         P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
 
-        P = P / P[-1,:]
+        P = P // P[-1,:]
 
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
-            return
+            return image, False
 
-        P = np.array(P, dtype=int)
         #view_depth *= view_cam_info['depth_scale']
         #view_depth *= cfg.MODEL_SCALING # convert to meter scale from millimeter scale
         #view_depth/=view_depth.max()
         
-        image[P[1], P[0], :] = 255
-        #tri = Delaunay(P[1], P[0])
+        P = P.astype(int)
 
-        #return P[1], P[0], tri.simplices
-        # TODO::: CONVERESIONS
-        return P[0].astype(int).astype(np.uint8), P[1].astype(int).astype(np.uint8)
-        #return P[0:2,:]
+        image[P[1], P[0], :] = 255
+        return image, True
+
+    def render_mesh(self, obj_id, R, t, image):
+        ### FLIP Y, and Z coords
+        R = R.dot(np.array([
+                        [1, 0, 0],
+                        [0, -1, 0],
+                        [0, 0, -1]], dtype=np.float32))
+        
+        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
+        F = self.cam_K_np.dot(R.dot(self.faces[obj_id].T) + t.T)
+
+        P = P // P[-1,:]
+        F = F // F[-1,:]
+
+        if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
+            return image, False
+        
+        P = P.astype(np.float32)
+        F = F.astype(np.int32)
+
+        image = rasterize(vertices=P, triangles=F,
+                #colors=np.zeros_like(P, dtype=np.uint8),
+                colors=np.array([1,1,1], dtype=np.float32)[...,None],
+                bg=image.astype(np.uint8),
+                #height=image.shape[0], width=image.shape[1], channel=3
+                )
+        return image, True
 
     def cloud_show(self, p):
         
