@@ -19,6 +19,7 @@ from matplotlib import pyplot as plt
 #from detectron2 import model_zoo
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultPredictor
+from detectron2.projects import point_rend
 
 from os.path import join as pjoin
 from bop_toolkit_lib import inout
@@ -239,7 +240,7 @@ def main(args):
             im_hsv = cv2.cvtColor(
                     1./255*image.astype(np.float32), code=cv2.COLOR_BGR2HSV_FULL)
             sub = im_hsv.copy()
-            low = 100; up = 250
+            low = 140; up = 220
             mask = cv2.inRange(sub, np.array([low,0,0]), np.array([up,1,1]))
 
             center = (cfg.RENDER_WIDTH//2, cfg.RENDER_HEIGHT//2)
@@ -337,42 +338,33 @@ def main(args):
             depth_image = np.asanyarray(aligned_depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
 
-            ### TODO: Get this out from here..?
-            if count == 0 and args.segment_method=='bgs':
-                input("Capturing mask")
-                first_frame[:] = color_image
-                continue
-    
             #timeit.log("Pose estimation.")
-            #breakpoint()
             mask, mask_gpu = segmentator(color_image)
 
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if mask.size != 0:
 
-                to_render = False
-                if to_render == True:
-                    ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                    R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
-                                obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
+                ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
+                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
+                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
-                    #if count % args.buffer_size == 0:
-                    #    count = -1
-                    #else:
-                    #    continue
+                #if count % args.buffer_size == 0:
+                #    count = -1
+                #else:
+                #    continue
 
-                    #timeit.endlog()
-                    #timeit.log("Rendering.")
+                #timeit.endlog()
+                #timeit.log("Rendering.")
 
-                    #done = dataset.render_cloud(obj_id=obj_id, 
-                    #        R=R.numpy().astype(np.float32), 
-                    #        t=t.numpy().astype(np.float32),
-                    #        image=color_image)
+                color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                        R=R.numpy().astype(np.float32), 
+                        t=t.numpy().astype(np.float32),
+                        image=color_image)
 
-                    color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                            R=R.numpy().astype(np.float32), 
-                            t=t.numpy().astype(np.float32),
-                            image=color_image)
+                #color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                #        R=R.numpy().astype(np.float32), 
+                #        t=t.numpy().astype(np.float32),
+                #        image=color_image)
 
                 # Point cloud matching failed.
                 if not done: continue
@@ -438,7 +430,7 @@ if __name__=="__main__":
                         help='Number of points for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',
                         required=False, default='maskrcnn',
-                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
+                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
                         help="""Method of segmentation.
                         contour: OpenCV based edge detection ...,
                         TODO:
