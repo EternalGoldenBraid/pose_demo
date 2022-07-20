@@ -224,6 +224,7 @@ def OVE6D_codebook_generation(model_func, codebook_dir, dataset, config, device)
 
     num_objects = len(obj_model_files)
 
+    ### TODO Change this to load the existing files.
     if len(codebook_files) == num_objects:  # pre-built codebooks exist, load it
         for obj_cbk_file in codebook_files:
             cbk_name = obj_cbk_file.split('/')[-1]
@@ -270,7 +271,7 @@ def OVE6D_translation_estimation(est_R, est_t, intrinsic, obj_scene, obj_render)
 @iex
 def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, config, obj_renderer, device):
     """
-    Perform OVE6D with given single mask 
+    Perform OVE7D with given single mask 
     """
     pose_ret = dict()
     cam_K = cam_K.to(device)
@@ -280,10 +281,13 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
     obj_mesh = obj_codebook['obj_mesh']
     obj_diameter = obj_codebook['diameter']
     
-    bg_timer = time.time()
-    #obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
-    bg_cost = time.time() - bg_timer
-    prep_timer = time.time()
+    #bg_timer = time.time()
+    bg_timer = time.perf_counter()
+    obj_depth = background_filter(obj_depth, obj_diameter) # filter out outliers
+    #bg_cost = time.time() - bg_timer
+    bg_cost = time.perf_counter() - bg_timer
+    #prep_timer = time.time()
+    prep_timer = time.perf_counter()
     obj_mask[obj_depth<0] = 0
 
     obj_zoom_dist = config.ZOOM_DIST_FACTOR * obj_diameter * cam_K.squeeze().cpu()[0, 0]
@@ -294,8 +298,11 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
                                                     target_zoom_dist=obj_zoom_dist, 
                                                     zoom_scale_mode=config.ZOOM_MODE, 
                                                     zoom_size=config.ZOOM_SIZE) # 1xHxW
-    prep_cost = time.time() - prep_timer # the pre-processing runtime
-    rot_timer = time.time()
+
+    #prep_cost = time.time() - prep_timer # the pre-processing runtime
+    prep_cost = time.perf_counter() - prep_timer # the pre-processing runtime
+    #rot_timer = time.time()
+    rot_timer = time.perf_counter()
 
     # if obj_codebook.get('gt_R', None) is not None:
     #     estimated_R = obj_codebook['gt_R'].expand(config.RANK_NUM_TOPK, -1, -1)
@@ -305,7 +312,8 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
                                                                     model_net=model_func,
                                                                     object_codebook=obj_codebook, 
                                                                     cfg=config)    
-    rot_cost = time.time() - rot_timer # rotation estimation runtime
+    rot_cost = time.perf_counter() - rot_timer # rotation estimation runtime
+    #rot_cost = time.time() - rot_timer # rotation estimation runtime
 
     raw_est_Rs = []
     raw_est_ts = []
@@ -317,9 +325,9 @@ def OVE6D_mask_full_pose(model_func, obj_depth, obj_mask, obj_codebook, cam_K, c
     icp_masks = []
     icp_depths = []
 
-    icp_timer = time.time()
+    icp_timer = time.perf_counter()
     dst_pts = pplane_ICP.depth_to_pointcloud(obj_depth.squeeze(), cam_K)
-    icp_cost = time.time() - icp_timer
+    icp_cost = time.perf_counter() - icp_timer
     postp_cost = 0
     tsl_cost = 0
     obj_context = rendering.SceneContext(obj=obj_mesh, intrinsic=cam_K.cpu()) # define a scene
@@ -433,7 +441,8 @@ def OVE6D_mask_rotation_estimation(input_depth, model_net, object_codebook, cfg)
     top_codebook_z_maps = obj_codebook_Z_map[topK_cosim_idxes, ...]
     
     with torch.no_grad():
-        query_theta, pd_conf = model_net.inference(top_codebook_z_maps.to(device), obj_query_z_map.expand_as(top_codebook_z_maps).to(device))
+        query_theta, pd_conf = model_net.inference(
+                top_codebook_z_maps.to(device), obj_query_z_map.expand_as(top_codebook_z_maps).to(device))
     stn_theta = F.pad(query_theta[:, :2, :2].clone(), (0, 1))
     
     homo_z_R = F.pad(stn_theta, (0, 0, 0, 1))

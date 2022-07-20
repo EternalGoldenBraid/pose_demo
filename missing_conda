@@ -1,7 +1,1 @@
-trimesh
-scipy
-pytz
-pypng
-imageio
-scikit-image
-pyrender
+trimesh scipy pytz pypng imageio scikit-image pyrender numba

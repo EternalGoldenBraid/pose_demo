@@ -1,14 +1,16 @@
 import os
-import cv2
+from time import perf_counter
 import sys
-import json
-import math
-import time
-import torch
 import warnings
+import json
+from itertools import product
+from pathlib import Path
+from numba import njit, prange
+import cv2
+import math
+import torch
 import numpy as np
 from PIL import Image, ImageDraw
-from pathlib import Path
 import pyrealsense2 as rs
 from scipy import stats
 
@@ -17,6 +19,7 @@ from matplotlib import pyplot as plt
 #from detectron2 import model_zoo
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultPredictor
+from detectron2.projects import point_rend
 
 from os.path import join as pjoin
 from bop_toolkit_lib import inout
@@ -25,9 +28,8 @@ warnings.filterwarnings("ignore")
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-from utility import timeit
-from lib import (rendering, network,
-        agnostic_segmentation)
+from utility import timeit, load_segmentation_model
+from lib import (rendering, network, triangulate)
 
 from lib.render_cloud import load_cloud, render_cloud
 
@@ -64,14 +66,6 @@ class PoseEstimator:
 
     def __del__(self):
         del self.obj_renderer
-
-def load_data(datapath=None):
-
-    ### DATA
-    eval_dataset = prototype_Dataset.Dataset(datapath / 'huawei_box')
-    #eval_dataset = LineMOD_Dataset.Dataset(datapath / 'lm')
-    
-    return eval_dataset
 
 def load_codebooks(model_net, eval_dataset):
     ### CODEBOOKS
@@ -131,7 +125,7 @@ def init_cam():
         print("The demo requires Depth camera with Color sensor")
         exit(0)
     
-    framerate = 30
+    framerate = 60
     config.enable_stream(rs.stream.depth, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.z16, framerate)
     #config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
     config.enable_stream(rs.stream.color, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.bgr8, framerate)
@@ -146,7 +140,7 @@ def init_cam():
 
     return pipeline, config, align
 
-def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
+def get_scale_intrinsics(pipeline,config, align):
 
     # Start streaming
     profile = pipeline.start(config)
@@ -165,8 +159,6 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
     ### QUERY FOR FRAMES FOR INTRINSICS. 
     ### TODO: Query sensor conf directly instead of loading a frame first.
     # Get frameset of color and depth
-    if bgsubtract:
-        input("Capture background. Enter")
     frames = pipeline.wait_for_frames()
     
     # Align the depth frame to color frame
@@ -188,9 +180,10 @@ def get_scale_intrinsics(pipeline,config, align, bgsubtract=True):
 
     print("Camera intrinsics:", K)
 
-    return depth_scale, K, aligned_depth_frame
+    return depth_scale, K, np.asanyarray(color_frame.get_data())
     
-def main(obj_id):
+#@njit(parallel=True)
+def main(args):
 
     #cfg.RENDER_WIDTH = eval_dataset.cam_width    # the width of rendered images
     #cfg.RENDER_HEIGHT = eval_dataset.cam_height  # the height of rendered images
@@ -202,126 +195,102 @@ def main(obj_id):
     cfg.RENDER_NUM_VIEWS = 4000 # reduce this if out of GPU memory,
     cfg.VP_NUM_TOPK = 50   # the retrieval number of viewpoint 
     cfg.RANK_NUM_TOPK = 5
+    cfg.USE_ICP = args.icp
 
-    timeit.log("Realsense initialization.")
+   #timeit.log("Realsense initialization.")
     pipeline, rs_config, align = init_cam()
 
-    #segment_method = 'bgsubtract'
-    #segment_method = 'maskrcnn'
-    segment_method = 'bgsMOG2'
-    if segment_method == 'bgsubtract':
-        bgsubtract=True
-    elif segment_method == 'bgsMOG2':
-        backSub = cv2.createBackgroundSubtractorMOG2()
-        bgsubtract=False
-    else: bgsubtract=False
+    ### Segmentation
+    segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
-    depth_scale, cam_K, background = get_scale_intrinsics(pipeline=pipeline, 
-            config=rs_config, align=align, bgsubtract=bgsubtract)
+    depth_scale, cam_K, _ = get_scale_intrinsics(pipeline=pipeline, 
+            config=rs_config, align=align)
 
-    timeit.endlog()
-    timeit.log("Loading data.")
-    dataroot = Path(cfg.DATA_PATH)
+   #timeit.endlog()
+   #timeit.log("Loading data.")
+    #dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
+    dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
+
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
-                cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH)
-
+                cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
+                n_points=args.n_points)
 
     model_path = 'checkpoints'
     model_file = "OVE6D_pose_model.pth"
     model_net_ove6d = load_model_ove6d(model_path=model_path, model_file=model_file)
 
-
+    obj_id: int = args.obj_id
     obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
 
-    timeit.endlog()
-
-    segmentator = agnostic_segmentation.load_model('checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
-
+    #timeit.endlog()
     pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, 
             obj_codebook=obj_codebook, 
             model_net=model_net_ove6d,
             device=DEVICE)
 
-
     # Streaming loop
+    count: int = -1
+    buffer_size: int = args.buffer_size
+    frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
+    done = True
     try:
         while True:
+            count += 1
+
             # Get frameset of color and depth
             frames = pipeline.wait_for_frames()
-    
             # Align the depth frame to color frame
             aligned_frames = align.process(frames)
-    
             # Get aligned frames
-            aligned_depth_frame = aligned_frames.get_depth_frame() # aligned_depth_frame is a 640x480 depth image
+            # aligned_depth_frame is a 640x480 depth image
+            aligned_depth_frame = aligned_frames.get_depth_frame() 
             color_frame = aligned_frames.get_color_frame()
-    
             # Validate that both frames are valid
             if not aligned_depth_frame or not color_frame:
                 continue
-    
             depth_image = np.asanyarray(aligned_depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
-    
-            timeit.log("Pose estimation.")
-            # Segment
-            if segment_method == 'bgsubtract':
-                mask = depth_image - np.asanyarray(background.get_data())
-                plt.imshow(mask/mask.max())
-                plt.show()
-                import pdb; pdb.set_trace()
-            elif segment_method == 'maskrcnn':
-                masks = segmentator(color_image)['instances'].get('pred_masks')[0]
-            elif segment_method == 'bgsMOG2':
-                mask = backSub.apply(color_image)
-                #import pdb; pdb.set_trace()
-                cv2.rectangle(color_image, (10, 2), (100,20), (255,255,255), -1)
 
-            else:
-                print("No segmentator")
-                return -1
-    
-            # Render images:
-            #   depth align to color on left
-            #   depth on right
-            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
-            if mask.all() == None:
-                #mask = mask.cpu().numpy().astype(np.uint8)
-                mask = mask.numpy().astype(np.uint8)
-                masked_img = (color_image*0.9 + mask[...,None]*0.5*255).astype(np.uint8)
+            #timeit.log("Pose estimation.")
+            mask, mask_gpu = segmentator(color_image)
 
-                obj_depth=torch.tensor((depth_image*mask*depth_scale).astype(np.float32)).squeeze()
-                R, t = pose_estimator.estimate_pose(
-                            obj_depth=obj_depth,
-                            obj_mask=masks)
+            #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
+            if mask.size != 0:
+
+                ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
+                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
+                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
+
+                #if count % args.buffer_size == 0:
+                #    count = -1
+                #else:
+                #    continue
 
                 #timeit.endlog()
                 #timeit.log("Rendering.")
-                dataset.render_cloud(obj_id=obj_id, R=R, t=t, image=color_image)
-                #images = np.hstack((color_image, masked_image))
+
+                color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                        R=R.numpy().astype(np.float32), 
+                        t=t.numpy().astype(np.float32),
+                        image=color_image)
+
+                #color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                #        R=R.numpy().astype(np.float32), 
+                #        t=t.numpy().astype(np.float32),
+                #        image=color_image)
+
+                # Point cloud matching failed.
+                if not done: continue
+
                 #import pdb; pdb.set_trace()
-                #images = np.hstack((color_image, color_image*mask[...,None], depth_colormap*mask[...,None]))
-                #color_image = color_image.astype(float)
-                #color_image = color_image/color_image.max()
-                #images = np.hstack((
-                #    color_image,
-                #    color_image*mask[...,None],
-                #    depth_image*mask[...,None]
-                #    ))
-                images = color_image
+                if args.render_mesh:
+                    pass
 
-                timeit.endlog()
-
-                #est_depth = dataset.render_depth(obj_id=obj_id, R=R, t=t, mesh=obj_codebook['obj_mesh'])
-                #est_depth /= est_depth.max()
-                #images = np.hstack((color_image, np.dstack((est_depth,est_depth,est_depth))))
-
-                #images = np.hstack((color_image, mask*255))
-                #images = color_image
+                images = np.hstack([ 
+                    color_image, color_image*(mask[...,None]) ])
+                #timeit.endlog()
             else:
-                #images = np.hstack((color_image, depth_colormap))
-                images = np.hstack((color_image, color_image, depth_colormap))
-            import pdb; pdb.set_trace()
+                images = np.hstack((color_image, color_image))
 
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
             cv2.imshow('Align Example', images)
@@ -330,19 +299,40 @@ def main(obj_id):
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
                 break
+
     finally:
         pipeline.stop()
 
 if __name__=="__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('--obj_id',
-                        type=int,
-                        required=False,
-                        help='Object index: {box, basket, headphones}',
-                        default=1)
+    parser = argparse.ArgumentParser(prog='demo',
+            description='Superimpose rotated pointcloud onto video.')
+    parser.add_argument('-o', '--obj_id', dest='obj_id',
+                        type=int, required=False,default=1,
+                        help='Object index: {box, basket, headphones}')
+    parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
+                        type=int, required=False, default=3,
+                        help='Frame buffer for smoothing.')
+    parser.add_argument('-n', '--n_points', dest='n_points',
+                        type=int, required=False, default=2000,
+                        help='Number of points for cloud/mesh.')
+    parser.add_argument('-s', '--segmentation', dest='segment_method',
+                        required=False, default='maskrcnn',
+                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
+                        help="""Method of segmentation.
+                        contour: OpenCV based edge detection ...,
+                        TODO:
+                        """)
+    ### Python < 3.9 TODO: Set this up.
+    #parser.add_argument('--feature', action='store_true', dest='render_mesh')
+    #parser.add_argument('--no-feature', dest='render_mesh', action='store_false')
+    #parser.set_defaults(render_mesh=True)
+    ### Python >= 3.9
+    parser.add_argument('-rm', '--render-mesh', dest='render_mesh', action=argparse.BooleanOptionalAction)
+    parser.add_argument('-icp', dest='icp', action=argparse.BooleanOptionalAction)
+
     
     args = parser.parse_args()
     
-    main(obj_id=args.obj_id)
+    main(args)
