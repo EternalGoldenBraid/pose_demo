@@ -67,7 +67,8 @@ def load(model, cfg, device):
     elif model == 'contour':
         #segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None
         def segmentator_(image):
-            mask = contour_segmentation.ContourSegmentator().get_mask(image)
+            mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
+            #import pdb; pdb.set_trace()
             return mask, torch.tensor(mask, device=device)
         segmentator = segmentator_
     elif model == 'maskrcnn':

@@ -197,7 +197,6 @@ def main(args):
     cfg.RANK_NUM_TOPK = 5
     cfg.USE_ICP = args.icp
 
-
    #timeit.log("Realsense initialization.")
     pipeline, rs_config, align = init_cam()
 
@@ -206,7 +205,6 @@ def main(args):
 
     depth_scale, cam_K, _ = get_scale_intrinsics(pipeline=pipeline, 
             config=rs_config, align=align)
-    #first_frame[:] = _
 
    #timeit.endlog()
    #timeit.log("Loading data.")
@@ -288,36 +286,12 @@ def main(args):
                 if args.render_mesh:
                     pass
 
-                    #tri = cv2.Subdiv2D((0, 0, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH))
-                    #tri.insert(np.concatenate((x[...,None], y[...,None]), axis=1))
-                    ##tri.insert(np.column_stack((x, y)))
-
-                    #triangulate.draw_delaunay(img=color_image, subdiv=tri,
-                    #        delaunay_color=(255, 255, 255) ) 
-                #La = np.abs(cv2.Laplacian(color_image, ddepth=3))
-                #La = cv2.convertScaleAbs(cv2.Laplacian(color_image, ddepth=3))
-
                 images = np.hstack([ 
-                    #color_image, color_image*(mask[...,None].repeat(repeats=3,axis=2)) ])
-                    #color_image, (255*mask[...,None].repeat(repeats=3,axis=2)) ])
                     color_image, color_image*(mask[...,None]) ])
-                    #cv2.convertScaleAbs(color_image.sim(dim=-1)), (mask[...,None]) ])
-                    #color_image, (mask[...,None].astype(np.uint8)*255).repeat(repeats=3,axis=2) ])
                 #timeit.endlog()
-
-                #est_depth = dataset.render_depth(obj_id=obj_id, R=R, t=t, mesh=obj_codebook['obj_mesh'])
-                #est_depth /= est_depth.max()
-                #images = np.hstack((color_image, np.dstack((est_depth,est_depth,est_depth))))
-
-                #images = np.hstack((color_image, mask*255))
-                #images = color_image
             else:
-
-                #images = np.hstack((color_image, depth_colormap))
                 images = np.hstack((color_image, color_image))
-            #import pdb; pdb.set_trace()
 
-            #continue
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
             cv2.imshow('Align Example', images)
             key = cv2.waitKey(1)

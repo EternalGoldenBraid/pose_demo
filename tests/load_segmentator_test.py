@@ -5,8 +5,9 @@ import sys
 import warnings
 import json
 from pathlib import Path
-import numpy as np
 
+import numpy as np
+import cv2
 from ipdb import iex
 from detectron2.config import get_cfg
 from detectron2.engine import DefaultPredictor
@@ -36,14 +37,24 @@ cfg.RANK_NUM_TOPK = 5
 cfg.USE_ICP = False
 
 models = np.array(['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'], dtype=object)
-models_ok = np.zeros(len(models), dtype=bool)
-for m_idx, model in enumerate(models):
-    print("Testing:", model)
+models_load_ok = np.zeros(len(models), dtype=bool)
+models_segment_ok = np.zeros(len(models), dtype=bool)
+for m_idx, model_name in enumerate(models):
+    print("Testing:", model_name)
     print("#"*30)
-    if load_segmentation_model.load(model=model, cfg=cfg, device='cuda'):
-        models_ok[m_idx] = True
+    model = load_segmentation_model.load(model=model_name, cfg=cfg, device='cuda')
+
+    if model:
+        models_load_ok[m_idx] = True
+
+        mask, mask_gpu = model(cv2.imread('input.jpg'))
+        if mask.size == 0:
+            models_segment_ok[m_idx] = True
     else:
-        models_ok[m_idx] = False
+        models_load_ok[m_idx] = False
+        models_segment_ok[m_idx] = False
+
+
 
 print(f"{models_ok.sum()}/{models_ok.size} models loading")
 print(models[~models_ok], "failed")
