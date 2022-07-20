@@ -1,63 +1,48 @@
-# OVE6D: Object Viewpoint Encoding for Depth-based 6D Object Pose Estimation (CVPR 2022)
-- [Paper](https://arxiv.org/abs/2203.01072)
-- [Project page](https://dingdingcai.github.io/ove6d-pose/) 
-
-<p align="center">
-    <img src ="assets/introduction_figure.png" width="500" />
-</p>
-
-``` Bash
-@inproceedings{cai2022ove6d,
-  title={OVE6D: Object Viewpoint Encoding for Depth-based 6D Object Pose Estimation},
-  author={Cai, Dingding and Heikkil{\"a}, Janne and Rahtu, Esa},
-  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-  pages={6803--6813},
-  year={2022}
-}
-```
-
-
 ## Setup
-Please start by installing [Miniconda3](https://conda.io/projects/conda/en/latest/user-guide/install/linux.html) with Pyhton3.8 or above.
+Please start by installing [Miniconda3](https://conda.io/projects/conda/en/latest/user-guide/install/linux.html) 
+with Pyhton3.9 or above.
 
-### Conda
+### Conda/Mamba
+
+mamba env create --file environment.yml
+
+In conda env install pip and with pip install:
+
+[Pyrealsense](https://pypi.org/project/pyrealsense/)
+- pip install pyrealsense2==2.50.0.3812
+
+[Detectron2](https://detectron2.readthedocs.io/en/latest/tutorials/install.html)
+- pip install detectron2 -f \
+  https://dl.fbaipublicfiles.com/detectron2/wheels/cu113/torch1.10/index.html
+
+or build from source :)
+
+# Pretrained modules
+`mkdir checkpoints; cd checkpoints`
+`wget https://tu-dortmund.sciebo.de/s/ISdLcDMduHeW1ay/download  -O FAT_trained_Ml2R_bin_fine_tuned.pth`
+`wget --no-check-certificate 'https://docs.google.com/uc?export=download&id=1aXkYOpvka5VAPYUYuHaCMp0nIvzxhW9X' \
+-O OVE6D_pose_model.pth`
+
+Or manually from below.
+
+### Segmentation modules
 Segmentation: https://github.com/AnasIbrahim/image_agnostic_segmentation
 
-https://stackoverflow.com/questions/65385983/prevent-conda-from-automatically-downgrading-python-package
-https://stackoverflow.com/questions/65483245/how-to-avoid-using-conda-forge-packages-unless-necessary
+`https://github.com/AnasIbrahim/image_agnostic_segmentation`
 
-https://github.com/facebookresearch/pytorch3d/issues/1076
-
-
-## Dependencies
-This project requires the evaluation code from [bop_toolkit](https://github.com/thodan/bop_toolkit) and [sixd_toolkit](https://github.com/thodan/sixd_toolkit).
-
-## Dataset
-Our evaluation is conducted on three datasets all downloaded from [BOP website](https://bop.felk.cvut.cz/datasets). All three datasets are stored in the same directory. e.g. ``Dataspace/lm, Dataspace/lmo, Dataspace/tless``.
-
-## Quantitative Evaluation
-Evaluation on the LineMOD and Occluded LineMOD datasets with instance segmentation (Mask-RCNN) network (entire pipeline i.e. instance segmentation + pose estimation)
-
-``python LM_RCNN_OVE6D_pipeline.py`` for LineMOD.
-
-``python LMO_RCNN_OVE6D_pipeline.py`` for Occluded LineMOD.
-
-Evaluation on the T-LESS dataset with the provided object segmentation masks (downloaded from [Multi-Path Encoder](https://github.com/DLR-RM/AugmentedAutoencoder/tree/multipath)).
-
-``python TLESS_eval_sixd17.py`` for TLESS.
-
-## Training
-To train OVE6D, the ShapeNet dataset is required. You need to first pre-process ShapeNet with the provided script in ``training/preprocess_shapenet.py``, and [Blender](https://www.blender.org/) is required for this task. More details refer to [LatentFusion](https://github.com/NVlabs/latentfusion).
+`https://github.com/facebookresearch/detectron2/tree/main/projects/PointRend`
+	- In progress
 
 ## pre-trained weight for OVE6D
 Our pre-trained OVE6D weights can be found [here](https://drive.google.com/drive/folders/16f2xOjQszVY4aC-oVboAD-Z40Aajoc1s?usp=sharing). Please download and save to the directory ``checkpoints/``.
 
-## Segmentation Masks
-- 1. For T-LESS we use the [segmentation masks](https://dlrmax.dlr.de/get/c677b2a7-78cf-5787-815b-7ba2c26555a7/) provided by [Multi-Path Encoder](https://github.com/DLR-RM/AugmentedAutoencoder/tree/multipath).
-- 2. For LineMOD and Occluded LineMOD, we fine-tuned the Mask-RCNN initialized with the weights from [Detectron2](https://github.com/facebookresearch/detectron2). The training data can be downloaded from [BOP](https://bop.felk.cvut.cz/datasets).
 
 # Acknowledgement
-- 1. The code is partially based on [LatentFusion](https://github.com/NVlabs/latentfusion).
-- 2. The evaluation code is based on [bop_toolkit](https://github.com/thodan/bop_toolkit) and [sixd_toolkit](https://github.com/thodan/sixd_toolkit).
+- OVE6D: [Project page](https://dingdingcai.github.io/ove6d-pose/) 
 
 
+### TODO:
+https://stackoverflow.com/questions/65385983/prevent-conda-from-automatically-downgrading-python-package
+https://stackoverflow.com/questions/65483245/how-to-avoid-using-conda-forge-packages-unless-necessary
+
+https://github.com/facebookresearch/pytorch3d/issues/1076

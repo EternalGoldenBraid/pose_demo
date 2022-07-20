@@ -16,10 +16,6 @@ from scipy import stats
 
 from ipdb import iex
 from matplotlib import pyplot as plt
-#from detectron2 import model_zoo
-from detectron2.config import get_cfg
-from detectron2.engine import DefaultPredictor
-from detectron2.projects import point_rend
 
 from os.path import join as pjoin
 from bop_toolkit_lib import inout

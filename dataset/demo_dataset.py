@@ -11,7 +11,7 @@ from ipdb import iex
 
 from lib import rendering
 #from lib.Sim3DR import RenderPipeline
-from lib.Sim3DR.Sim3DR import rasterize, get_normal
+#from lib.Sim3DR.Sim3DR import rasterize, get_normal
 
 class Dataset():
     def __init__(self, data_dir, cfg, 
@@ -111,13 +111,13 @@ class Dataset():
         P = P.astype(np.float32)
         F = F.astype(np.int32)
 
-        image = rasterize(vertices=P, triangles=F,
-                #colors=np.zeros_like(P, dtype=np.uint8),
-                colors=np.array([1,1,1], dtype=np.float32)[...,None],
-                bg=image.astype(np.uint8),
-                #height=image.shape[0], width=image.shape[1], channel=3
-                )
-        return image, True
+        #image = rasterize(vertices=P, triangles=F,
+        #        #colors=np.zeros_like(P, dtype=np.uint8),
+        #        colors=np.array([1,1,1], dtype=np.float32)[...,None],
+        #        bg=image.astype(np.uint8),
+        #        #height=image.shape[0], width=image.shape[1], channel=3
+        #        )
+        #return image, True
 
     def cloud_show(self, p):
         
