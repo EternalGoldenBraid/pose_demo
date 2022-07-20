@@ -1,4 +1,4 @@
-name: pose_install
+name: pose
 channels:
   - pytorch3d
   - pytorch
@@ -301,9 +301,6 @@ dependencies:
   - zlib=1.2.12=h166bdaf_1
   - zlib-ng=2.0.6=h166bdaf_0
   - zstd=1.5.2=ha4553b6_0
-  - pip:
-    - detectron2==0.6+cu113
-    - pyrealsense2==2.50.0.3812
 variables:
   PIP_REQUIRE_VIRTUALENV: 'False'
-prefix: /home/nicklas/miniconda3/envs/pose_install
+prefix: /home/nicklas/miniconda3/envs/pose
