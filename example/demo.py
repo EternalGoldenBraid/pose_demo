@@ -64,9 +64,6 @@ class PoseEstimator:
         del self.obj_renderer
 
 def load_codebooks(model_net, eval_dataset):
-    ### CODEBOOKS
-    cfg.VIEWBOOK_BATCHSIZE = 200 # reduce this if out of GPU memory, 
-    cfg.RENDER_NUM_VIEWS = 4000 # reduce this if out of GPU memory, 
     codebook_saving_dir = pjoin(base_path,'evaluation/object_codebooks',
                                 cfg.DATASET_NAME, 
                                 'zoom_{}'.format(cfg.ZOOM_DIST_FACTOR), 
@@ -187,8 +184,6 @@ def main(args):
     cfg.RENDER_HEIGHT = 480  # the height of rendered images
     cfg.DATASET_NAME = 'huawei_box'        # dataset name
     cfg.HEMI_ONLY = False
-    cfg.VIEWBOOK_BATCHSIZE = 200 # reduce this if out of GPU memory, 
-    cfg.RENDER_NUM_VIEWS = 4000 # reduce this if out of GPU memory,
     cfg.VP_NUM_TOPK = 50   # the retrieval number of viewpoint 
     cfg.RANK_NUM_TOPK = 5
     cfg.USE_ICP = args.icp
@@ -253,9 +248,11 @@ def main(args):
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if mask.size != 0:
 
+                import pdb; pdb.set_trace()
+
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
-                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
+                #R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
+                #            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
                 #if count % args.buffer_size == 0:
                 #    count = -1
@@ -265,9 +262,11 @@ def main(args):
                 #timeit.endlog()
                 #timeit.log("Rendering.")
 
-                color_image, done = dataset.render_cloud(obj_id=obj_id, 
-                        R=R.numpy().astype(np.float32), 
-                        t=t.numpy().astype(np.float32),
+                done = dataset.render_cloud(obj_id=obj_id, 
+                        #R=R.numpy().astype(np.float32), 
+                        #t=t.numpy().astype(np.float32),
+                        R=np.eye(3, dtype=np.float32), 
+                        t=np.ones(3, dtype=np.float32)[...,None].T,
                         image=color_image)
 
                 #color_image, done = dataset.render_mesh(obj_id=obj_id, 
