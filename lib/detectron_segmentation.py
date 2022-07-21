@@ -11,6 +11,7 @@ from detectron2.data import MetadataCatalog
 from detectron2.utils.visualizer import Visualizer
 from detectron2.utils.visualizer import ColorMode
 from detectron2.projects import point_rend
+from detectron2.modeling import build_model
 
 device = 'cuda'
 
@@ -27,9 +28,16 @@ def load_model_image_agnostic(model_path='../checkpoints/FAT_trained_Ml2R_bin_fi
     cfg.MODEL.ROI_MASK_HEAD.CLS_AGNOSTIC_MASK = True
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = confidence
     cfg.MODEL.DEVICE = device
-    predictor = DefaultPredictor(cfg)
 
-    return predictor
+    ### Without default predictor
+    from detectron2.checkpoint import DetectionCheckpointer
+    model = build_model(cfg)
+    model.eval()
+    checkpointer = DetectionCheckpointer(model)
+    checkpointer.load(cfg.MODEL.WEIGHTS)
+    return model, cfg
+    #predictor = DefaultPredictor(cfg)
+    #return predictor
 
 def load_model_point_rend(model_path='../checkpoints/model_final_ba17b9_pointrend.pkl', 
         config_yaml='', confidence=0.7, base_path=''):

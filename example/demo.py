@@ -106,7 +106,7 @@ def main(args):
     cfg.USE_ICP = args.icp
 
    #timeit.log("Realsense initialization.")
-    cam = cam_control.Camera(size=(640, 480), framerate=60)
+    cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=60)
     depth_scale, cam_K =  cam.depth_scale, cam.cam_K
    #timeit.endlog()
 
@@ -135,30 +135,38 @@ def main(args):
             device=DEVICE)
 
     # Streaming loop
-    count: int = -1
+    count: int = 0
     buffer_size: int = args.buffer_size
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
     done = True
+
+    R = torch.zeros([3,3], dtype=torch.float32, device='cpu')
+    t = torch.zeros([1,3], dtype=torch.float32, device='cpu')
     try:
         while True:
+
+            fps_start = perf_counter()
+
             count += 1
 
             depth_image, color_image = cam.get_image()
 
-            #timeit.log("Pose estimation.")
             mask, mask_gpu = segmentator(color_image)
 
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if mask.size != 0:
 
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
+                R_old = R; t_old = t
                 R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
                             obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
-                #if count % args.buffer_size == 0:
-                #    count = -1
-                #else:
-                #    continue
+                if count % args.buffer_size == 0:
+                    R = R/args.buffer_size; t = t/args.buffer_size
+                    count = 0
+                else:
+                    R = R+R_old; t = t+t_old
+                    continue
 
                 #timeit.endlog()
                 #timeit.log("Rendering.")
@@ -183,7 +191,8 @@ def main(args):
                 #timeit.endlog()
             else:
                 images = np.hstack((color_image, color_image))
-
+            
+            cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
             cv2.imshow('Align Example', images)
             key = cv2.waitKey(1)

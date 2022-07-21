@@ -1,23 +1,16 @@
 import os
-from time import perf_counter
 import sys
-import warnings
 import json
-from itertools import product
 from pathlib import Path
-from numba import njit, prange
 import cv2
-import math
 import torch
 import numpy as np
 
 from ipdb import iex
-from matplotlib import pyplot as plt
 #from detectron2 import model_zoo
 from detectron2.projects import point_rend
 
 from os.path import join as pjoin
-warnings.filterwarnings("ignore")
 
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
@@ -72,28 +65,43 @@ def load(model, cfg, device):
             return mask, torch.tensor(mask, device=device)
         segmentator = segmentator_
     elif model == 'maskrcnn':
+
         none_array = np.array(())
-        model_seg = detectron_segmentation.load_model_image_agnostic(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
-        def segmentator_(image, model=model_seg):
-            mask_gpu = model(image)['instances'].get('pred_masks')
-            if mask_gpu.numel() == 0:
-                return none_array, None
-            mask_cpu = mask_gpu[0].to(
-                    non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
-            return mask_cpu, mask_gpu[0]
+        model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
+
+        import detectron2.data.transforms as T
+        aug = T.ResizeShortestEdge(
+            [model_cfg.INPUT.MIN_SIZE_TEST, model_cfg.INPUT.MIN_SIZE_TEST], model_cfg.INPUT.MAX_SIZE_TEST
+        )
+
+        def segmentator_(image, model=model_seg, aug=aug):
+            image = aug.get_transform(image).apply_image(image)
+            inputs = {"image": torch.as_tensor(image.astype("float32").transpose(2, 0, 1)),
+                        "height": cfg.RENDER_HEIGHT, "width": cfg.RENDER_WIDTH}
+            with torch.no_grad():
+                #import pdb; pdb.set_trace()
+                mask_gpu = model([inputs])[0]['instances'].get('pred_masks')
+                if mask_gpu.numel() == 0:
+                    return none_array, None
+                mask_cpu = mask_gpu[0].to(
+                        non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
+                return mask_cpu, mask_gpu[0]
         segmentator = segmentator_
     elif model == 'point_rend':
         none_array = np.array(())
         print("BASE:",base_path)
-        model_seg = detectron_segmentation.load_model_point_rend(base_path+'/checkpoints/model_final_ba17b9_pointrend.pkl',
+        #model_file = base_path+'/checkpoints/model_final_ba17b9_pointrend.pkl'
+        model_path = base_path+'/checkpoints/model_final_edd263_pointrend.pkl'
+        
+        model_seg = detectron_segmentation.load_model_point_rend(model_path=model_path,
                 config_yaml=base_path+'/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
                 #config_yaml='configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
                 confidence=0.7, base_path=base_path)
         def segmentator_(image, model=model_seg):
             pred = model(image)['instances']
-            import pdb; pdb.set_trace()
-            if not pred.has('pred_masks'):
+            if pred.pred_masks.numel() == 0:
                 return none_array, None
+            #import pdb; pdb.set_trace()
             mask_gpu = pred.get('pred_masks')
             mask_cpu = mask_gpu[0].to(
                     non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)

@@ -23,7 +23,6 @@ from lib import detectron_segmentation, contour_segmentation
 from evaluation import config as cfg
 
 
-
 #cfg.RENDER_WIDTH = eval_dataset.cam_width    # the width of rendered images
 #cfg.RENDER_HEIGHT = eval_dataset.cam_height  # the height of rendered images
 cfg.RENDER_WIDTH = 640    # the width of rendered images
@@ -47,14 +46,18 @@ for m_idx, model_name in enumerate(models):
     if model:
         models_load_ok[m_idx] = True
 
+        ## TODO: Add True negative test!
         mask, mask_gpu = model(cv2.imread('input.jpg'))
-        if mask.size == 0:
+        if mask.size != 0:
             models_segment_ok[m_idx] = True
+        else:
+            models_segment_ok[m_idx] = False
     else:
         models_load_ok[m_idx] = False
         models_segment_ok[m_idx] = False
 
-
-
-print(f"{models_ok.sum()}/{models_ok.size} models loading")
-print(models[~models_ok], "failed")
+print(f"{models_load_ok.sum()}/{models_load_ok.size} models loading")
+print(models[~models_load_ok], "failed")
+print("#"*30)
+print(f"{models_segment_ok.sum()}/{models_segment_ok.size} models segmenting")
+print(models[~models_segment_ok], "failed")
