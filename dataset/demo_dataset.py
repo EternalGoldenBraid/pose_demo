@@ -78,6 +78,8 @@ class Dataset():
         
         P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
 
+        #print(np.linalg.norm((R.dot(self.point_cloud[obj_id].T) + t.T).mean(axis=1)))
+        
         P = P // P[-1,:]
 
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
