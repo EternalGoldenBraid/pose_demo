@@ -2,6 +2,7 @@ import os
 import time
 import glob
 import math
+import re
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -212,47 +213,95 @@ def viewpoint_sampling_and_encoding(model_func, obj_model_file, obj_diameter, co
             "obj_mesh":obj_mesh,
            }
 
+def create_codebook(obj_id, config, model_func, obj_model_file,
+        intrinsic, device, obj_diameter, codebook_dir):
+    # from milimeter to meter
+    obj_cbk = viewpoint_sampling_and_encoding(model_func=model_func,
+                  obj_model_file=obj_model_file,
+                  obj_diameter=obj_diameter,
+                  config=config,
+                  intrinsic=intrinsic,
+                  device=device)                                              
+
+    codebook_file = os.path.join(codebook_dir, 
+                    '{}_obj_{:02d}_views_{}.npy'.format(
+                    config.DATASET_NAME, obj_id, config.RENDER_NUM_VIEWS))
+                   
+    with open(codebook_file, 'wb') as f:
+        np.save(f, obj_cbk)
+
+    return obj_cbk
 
 def OVE6D_codebook_generation(model_func, codebook_dir, dataset, config, device):
     object_codebooks = dict()
 
-    codebook_files = sorted(glob.glob(os.path.join(codebook_dir, 
-                            '*_views_{}.npy'.format(config.RENDER_NUM_VIEWS))))
+    codebook_files = np.array(sorted(glob.glob(os.path.join(codebook_dir, 
+                            '*_views_{}.npy'.format(config.RENDER_NUM_VIEWS)))),
+                            dtype=object)
+
     intrinsic = dataset.cam_K
     obj_model_files = dataset.obj_model_file
     obj_diameter_info = dataset.obj_diameter
 
     num_objects = len(obj_model_files)
 
-    ### TODO Change this to load the existing files.
-    if len(codebook_files) == num_objects:  # pre-built codebooks exist, load it
+    if len(codebook_files) == 0:
+        if not os.path.exists(codebook_dir):
+            os.makedirs(codebook_dir)
+
+        # No codebooks exist. Render all object models.
+        print('No codebook files found, generating codebooks.')
+        for obj_id, obj_model_file in obj_model_files.items():
+
+            print("Generating codebook for object:", obj_id, end=" .")
+
+            obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING # from milimeter to meter
+            obj_cbk = create_codebook(obj_id=obj_id, config=config, model_func=model_func,
+                        obj_model_file=obj_model_file, intrinsic=intrinsic, device=device,
+                        obj_diameter=obj_diameter, codebook_dir=codebook_dir)
+
+            object_codebooks[obj_id] = obj_cbk
+            
+            print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
+
+    else: 
+        # pre-built codebooks exist, load existing ones.
         for obj_cbk_file in codebook_files:
             cbk_name = obj_cbk_file.split('/')[-1]
             obj_id = int(cbk_name.split('_')[-3])    # _obj_{:02d}_views_{}.npy
             print('Loading ', obj_cbk_file)
             with open(obj_cbk_file, 'rb') as f:
                 object_codebooks[obj_id] = np.load(f, allow_pickle=True).item()
-    else:
-        print('generating codebook for {} viewpoints ...'.format(config.RENDER_NUM_VIEWS))
-        for obj_id, obj_model_file in obj_model_files.items():
-            obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING # from milimeter to meter
-            obj_cbk = viewpoint_sampling_and_encoding(model_func=model_func,
-                                                            obj_model_file=obj_model_file,
-                                                            obj_diameter=obj_diameter,
-                                                            config=config,
-                                                            intrinsic=intrinsic,
-                                                            device=device)                                              
-            if not os.path.exists(codebook_dir):
-                os.makedirs(codebook_dir)
-            codebook_file = os.path.join(codebook_dir, 
-                            '{}_obj_{:02d}_views_{}.npy'.format(
-                            config.DATASET_NAME, obj_id, config.RENDER_NUM_VIEWS))
-                           
-            with open(codebook_file, 'wb') as f:
-                np.save(f, obj_cbk)
-            object_codebooks[obj_id] = obj_cbk
-            
-            print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
+
+
+        #TODO: Unnecessary regex. See obj_id collection above.
+        pattern = re.compile('[1-9]0*_views')
+        existing_obj_ids = [int(pattern.findall(file)[0].split('_')[0]) for file in codebook_files]
+
+        if len(codebook_files) < num_objects:
+            # Codebooks don't exist for all models. Render the for unexisting codebooks.
+            print(f'Objects missing from codebook.')
+            print('generating codebook for {} viewpoints ...'.format(config.RENDER_NUM_VIEWS))
+
+            print("Existing object_ids:", existing_obj_ids)
+
+
+            #for obj_id, obj_model_file in tqdm(obj_model_files.items()):
+            for obj_id, obj_model_file in obj_model_files.items():
+
+                # Skip models that already exist.
+                if obj_id in existing_obj_ids: 
+                    continue
+
+                print("Generating codebook for object:", obj_id)
+                obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING 
+                obj_cbk = create_codebook(obj_id=obj_id, config=config, model_func=model_func,
+                            obj_model_file=obj_model_file, intrinsic=intrinsic, device=device,
+                            obj_diameter=obj_diameter, codebook_dir=codebook_dir)
+
+                object_codebooks[obj_id] = obj_cbk
+                
+                print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
     return object_codebooks
 
 
