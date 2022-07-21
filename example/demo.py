@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-from utility import timeit, load_segmentation_model
+from utility import timeit, load_segmentation_model, cam_control
 from lib import (rendering, network, triangulate)
 
 from lib.render_cloud import load_cloud, render_cloud
@@ -95,93 +95,10 @@ def load_model_ove6d(model_path, model_file=None):
     print('OVE6D has been loaded!')
     return model_net
 
-def init_cam():
-    # Create a pipeline
-    pipeline = rs.pipeline()
-    
-    # Create a config and configure the pipeline to stream
-    #  different resolutions of color and depth streams
-    config = rs.config()
-    
-    # Get device product line for setting a supporting resolution
-    pipeline_wrapper = rs.pipeline_wrapper(pipeline)
-    pipeline_profile = config.resolve(pipeline_wrapper)
-    device = pipeline_profile.get_device()
-    device_product_line = str(device.get_info(rs.camera_info.product_line))
-    
-    found_rgb = False
-    for s in device.sensors:
-        if s.get_info(rs.camera_info.name) == 'RGB Camera':
-            found_rgb = True
-            break
-    if not found_rgb:
-        print("The demo requires Depth camera with Color sensor")
-        exit(0)
-    
-    framerate = 60
-    config.enable_stream(rs.stream.depth, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.z16, framerate)
-    #config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT, rs.format.bgr8, framerate)
-    #config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-
-    # Create an align object
-    # rs.align allows us to perform alignment of depth frames to others frames
-    # The "align_to" is the stream type to which we plan to align depth frames.
-    align_to = rs.stream.color
-    #align_to = rs.stream.depth
-    align = rs.align(align_to)
-
-    return pipeline, config, align
-
-def get_scale_intrinsics(pipeline,config, align):
-
-    # Start streaming
-    profile = pipeline.start(config)
-
-    # Getting the depth sensor's depth scale (see rs-align example for explanation)
-    depth_sensor = profile.get_device().first_depth_sensor()
-    depth_scale = depth_sensor.get_depth_scale()
-    print("Depth Scale is: " , depth_scale)
-
-    # We will be removing the background of objects more than
-    #  clipping_distance_in_meters meters away
-    clipping_distance_in_meters = 1 #1 meter
-    clipping_distance = clipping_distance_in_meters / depth_scale
-    
-
-    ### QUERY FOR FRAMES FOR INTRINSICS. 
-    ### TODO: Query sensor conf directly instead of loading a frame first.
-    # Get frameset of color and depth
-    frames = pipeline.wait_for_frames()
-    
-    # Align the depth frame to color frame
-    aligned_frames = align.process(frames)
-    # Get aligned frames
-    aligned_depth_frame = aligned_frames.get_depth_frame() # aligned_depth_frame is a 640x480 depth image
-    color_frame = aligned_frames.get_color_frame()
-
-    # Validate that both frames are valid
-    if not aligned_depth_frame or not color_frame:
-        print("Couldn't load camera intrinsics")
-        return
-
-    i = aligned_depth_frame.profile.as_video_stream_profile().intrinsics
-    #color_intrinsic = color_frame.profile.as_video_stream_profile().intrinsics ### These should be same.
-    K = torch.tensor([  [i.fx,  0,  i.ppx],
-                        [0, i.fy, i.ppy],
-                        [0, 0,  1]], device='cpu') 
-
-    print("Camera intrinsics:", K)
-
-    return depth_scale, K, np.asanyarray(color_frame.get_data())
-    
-#@njit(parallel=True)
 def main(args):
 
     #cfg.RENDER_WIDTH = eval_dataset.cam_width    # the width of rendered images
     #cfg.RENDER_HEIGHT = eval_dataset.cam_height  # the height of rendered images
-    cfg.RENDER_WIDTH = 640    # the width of rendered images
-    cfg.RENDER_HEIGHT = 480  # the height of rendered images
     cfg.DATASET_NAME = 'huawei_box'        # dataset name
     cfg.HEMI_ONLY = False
     cfg.VP_NUM_TOPK = 50   # the retrieval number of viewpoint 
@@ -189,15 +106,13 @@ def main(args):
     cfg.USE_ICP = args.icp
 
    #timeit.log("Realsense initialization.")
-    pipeline, rs_config, align = init_cam()
+    cam = cam_control.Camera(size=(640, 480), framerate=60)
+    depth_scale, cam_K =  cam.depth_scale, cam.cam_K
+   #timeit.endlog()
 
     ### Segmentation
     segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
-    depth_scale, cam_K, _ = get_scale_intrinsics(pipeline=pipeline, 
-            config=rs_config, align=align)
-
-   #timeit.endlog()
    #timeit.log("Loading data.")
     #dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
     dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
@@ -228,19 +143,7 @@ def main(args):
         while True:
             count += 1
 
-            # Get frameset of color and depth
-            frames = pipeline.wait_for_frames()
-            # Align the depth frame to color frame
-            aligned_frames = align.process(frames)
-            # Get aligned frames
-            # aligned_depth_frame is a 640x480 depth image
-            aligned_depth_frame = aligned_frames.get_depth_frame() 
-            color_frame = aligned_frames.get_color_frame()
-            # Validate that both frames are valid
-            if not aligned_depth_frame or not color_frame:
-                continue
-            depth_image = np.asanyarray(aligned_depth_frame.get_data())
-            color_image = np.asanyarray(color_frame.get_data())
+            depth_image, color_image = cam.get_image()
 
             #timeit.log("Pose estimation.")
             mask, mask_gpu = segmentator(color_image)
@@ -248,11 +151,9 @@ def main(args):
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if mask.size != 0:
 
-                import pdb; pdb.set_trace()
-
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                #R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
-                #            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
+                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
+                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
 
                 #if count % args.buffer_size == 0:
                 #    count = -1
@@ -262,20 +163,16 @@ def main(args):
                 #timeit.endlog()
                 #timeit.log("Rendering.")
 
-                done = dataset.render_cloud(obj_id=obj_id, 
-                        #R=R.numpy().astype(np.float32), 
-                        #t=t.numpy().astype(np.float32),
-                        R=np.eye(3, dtype=np.float32), 
-                        t=np.ones(3, dtype=np.float32)[...,None].T,
+                #import pdb; pdb.set_trace()
+                color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                        R=R.numpy().astype(np.float32), 
+                        t=t.numpy().astype(np.float32),
                         image=color_image)
 
                 #color_image, done = dataset.render_mesh(obj_id=obj_id, 
                 #        R=R.numpy().astype(np.float32), 
                 #        t=t.numpy().astype(np.float32),
                 #        image=color_image)
-
-                # Point cloud matching failed.
-                if not done: continue
 
                 #import pdb; pdb.set_trace()
                 if args.render_mesh:
@@ -296,7 +193,7 @@ def main(args):
                 break
 
     finally:
-        pipeline.stop()
+        del cam
 
 if __name__=="__main__":
     import argparse
