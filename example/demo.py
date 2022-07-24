@@ -27,6 +27,7 @@ sys.path.append(base_path)
 from utility import timeit, load_segmentation_model, cam_control
 from lib import (rendering, network, triangulate)
 
+from lib.sound_trajectory import world2image
 from lib.render_cloud import load_cloud, render_cloud
 
 from dataset import LineMOD_Dataset, demo_dataset
@@ -103,8 +104,10 @@ def main(args):
     cfg.USE_ICP = args.icp
 
    #timeit.log("Realsense initialization.")
+   # TODO change to row_major for numpy...? What's torch
     cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=60)
     depth_scale, cam_K =  cam.depth_scale, cam.cam_K
+    cam_K_np = cam_K.numpy()
    #timeit.endlog()
 
     ### Segmentation
@@ -132,10 +135,16 @@ def main(args):
             device=DEVICE)
 
     # Streaming loop
-    count: int = 0
+    mod_count: int = 0
     buffer_size: int = args.buffer_size
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
+    from collections import deque
+    #sound_buffer = deque([np.zeros(3) for i in range(3)], maxlen=buffer_size)
+    sound_buffer = np.array([np.zeros(3) for i in range(buffer_size)])
     done = True
+
+    render_trajectory = world2image(cam_K=cam_K_np, n_points=buffer_size,
+            width=cfg.RENDER_WIDTH, height=cfg.RENDER_HEIGHT, n_channels=3,radius=3)
 
     R = torch.zeros([3,3], dtype=torch.float32, device='cpu')
     t = torch.zeros([1,3], dtype=torch.float32, device='cpu')
@@ -143,8 +152,7 @@ def main(args):
         while True:
 
             fps_start = perf_counter()
-
-            #count += 1
+            
 
             depth_image, color_image = cam.get_image()
 
@@ -179,6 +187,17 @@ def main(args):
                         t=t.numpy().astype(np.float32),
                         image=color_image)
 
+                #if done and mod_count > buffer_size:
+                if done:
+                    sound_buffer[mod_count] = t
+                    mod_count += 1
+                    #color_image =  world2image(image=color_image, pts=sound_buffer, cam_k=cam_k_np)
+                    color_image =  render_trajectory(image=color_image, pts=sound_buffer)
+
+                    if mod_count % buffer_size == 0:
+                        mod_count = 0
+
+
                 #color_image, done = dataset.render_mesh(obj_id=obj_id, 
                 #        R=R.numpy().astype(np.float32), 
                 #        t=t.numpy().astype(np.float32),
@@ -193,6 +212,7 @@ def main(args):
                 #timeit.endlog()
             else:
                 images = np.hstack((color_image, color_image))
+
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
