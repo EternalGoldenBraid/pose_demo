@@ -79,6 +79,7 @@ class Dataset():
         P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
 
         #print(np.linalg.norm((R.dot(self.point_cloud[obj_id].T) + t.T).mean(axis=1)))
+        #print(np.linalg.norm((t.T).mean(axis=1)))
         
         P = P // P[-1,:]
 
