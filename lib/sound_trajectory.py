@@ -27,8 +27,8 @@ def world2image(cam_K, image_size = (640,480, 3),
     import pyaudio
     p = pyaudio.PyAudio()
 
-    volume = 0.2     # range [0.0, 1.0]
-    duration = 0.1   # in seconds, may be float
+    volume = 0.5     # range [0.0, 1.0]
+    duration = 0.4   # in seconds, may be float
     fs = 44100
     #f = np.array([400, 4000, 12000])
 
@@ -38,18 +38,27 @@ def world2image(cam_K, image_size = (640,480, 3),
     #fy = np.clip(np.arange(0,height)**2, a_min=f_min, a_max=f_max)
     #fz = np.clip(np.arange(0,5)**2, a_min=f_min, a_max=f_max)
 
-    freqs = np.linspace(20, 10000, num=10)
+    freqs = np.linspace(20, 5000, num=10)
     
     # generate samples, note conversion to float32 array
     #samples = [(np.sin(2*np.pi*np.arange(fs*duration)*f/fs)).astype(np.float32).tobytes() \
-    samples = [(np.sin(2*np.pi*np.arange(fs*duration)*f/fs)).astype(np.float32) \
-            for f in freqs]
-
+    #samples = [(np.sin(2*np.pi*np.arange(fs*duration)*f/fs)).astype(np.float32) \
+            #for f in freqs]
+    sampler = lambda f, phi=0: (np.sin(2*np.pi*np.arange(fs*duration+phi)*f/fs)).astype(np.float32)
     # for paFloat32 sample values must be in range [-1.0, 1.0]
     stream = p.open(format=pyaudio.paFloat32,
                     channels=1,
                     rate=fs,
                     output=True)
+
+    previous_mean: float = 0.
+    max_norm = 0.8
+    f_max = 1e3; f_min=20
+    # linear regression for frequency.
+    k = (f_max - f_min)/max_norm
+    frequency = lambda norm: np.clip(k*norm+f_min, a_min=f_min, a_max=f_max)
+
+    prev_signal = np.zeros(int(fs*duration))
 
     def color_points(image, pts):
         """
@@ -57,6 +66,8 @@ def world2image(cam_K, image_size = (640,480, 3),
         """
         nonlocal P_rgb #TODO Overhead?
         nonlocal radius
+        nonlocal frequency
+        nonlocal volume
 
         #breakpoint()
         P = cam_K.dot(pts.T) # C x N
@@ -76,9 +87,15 @@ def world2image(cam_K, image_size = (640,480, 3),
         P = P // P[-1,:]
         P = P.astype(int)
 
-        y_sound = samples[int(P[:,0][0]/(height/10))]
-        x_sound = samples[int(P[:,0][1]/(width/10))]
-        stream.write(y_sound+x_sound)
+        f = frequency(np.linalg.norm(pts,axis=1).mean())
+        print(f)
+        stream.write(volume*sampler(f))
+
+        #y_sound = samples[int( (P[:,0][0]-P[:,1][0]) /(height/10)-1)]
+        #x_sound = samples[int( (P[:,0][1]-P[:,0][1]) /(width/10)-1)]
+        #stream.write(y_sound+x_sound)
+
+        #stream.write((np.sin(2*np.pi*np.arange(fs*duration)*400/fs)).astype(np.float32))
         #print("y_sound:", y_sound)
         #print("x_sound:", x_sound)
         #print("y_sound", int(P[:,0][0]/(height/10)))
