@@ -64,6 +64,25 @@ class PoseEstimator:
 
         return pose_ret['raw_R'], pose_ret['raw_t']
 
+    def estimate_poses(self, obj_depths, obj_masks, scores):
+
+        #tar_obj_depth = (view_depth * obj_mask).squeeze()
+        pose_ret = utils.OVE6D_rcnn_full_pose(
+            model_func=self.model_net, 
+            #obj_depth=tar_obj_depth[None,:,:],
+            obj_depths=obj_depths, # N*h*w
+            obj_masks=obj_masks, # N*h*w
+            obj_rcnn_scores=scores,
+            obj_codebook=self.obj_codebook,
+            cam_K=self.cam_K,
+            config=self.cfg,
+            obj_renderer=self.obj_renderer,
+            device=DEVICE,
+            return_rcnn_idx=False # TODO role?
+            )
+
+        return pose_ret['raw_R'], pose_ret['raw_t']
+
     def __del__(self):
         del self.obj_renderer
 
