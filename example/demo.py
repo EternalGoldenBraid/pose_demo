@@ -34,7 +34,10 @@ from dataset import LineMOD_Dataset, demo_dataset
 from evaluation import utils
 from evaluation import config as cfg
 
-DEVICE = torch.device('cuda')
+#DEVICE = torch.device('cuda')
+#DEVICE = torch.device('cpu')
+#DEVICE = 'cpu'
+DEVICE = 'cuda'
 
 class PoseEstimator:
     def __init__(self, cfg, cam_K, obj_codebook, model_net, device='cpu'):
@@ -153,7 +156,6 @@ def main(args):
 
             fps_start = perf_counter()
             
-
             depth_image, color_image = cam.get_image()
 
             mask, mask_gpu = segmentator(color_image)

@@ -67,7 +67,9 @@ def load(model, cfg, device):
     elif model == 'maskrcnn':
 
         none_array = np.array(())
-        model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
+        model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(
+                base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth',
+                device=device)
 
         import detectron2.data.transforms as T
         aug = T.ResizeShortestEdge(
@@ -94,9 +96,10 @@ def load(model, cfg, device):
         model_path = base_path+'/checkpoints/model_final_edd263_pointrend.pkl'
         
         model_seg = detectron_segmentation.load_model_point_rend(model_path=model_path,
-                config_yaml=base_path+'/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
+                config_yaml=base_path+ \
+                        '/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
                 #config_yaml='configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
-                confidence=0.7, base_path=base_path)
+                confidence=0.7, base_path=base_path, device=device)
         def segmentator_(image, model=model_seg):
             pred = model(image)['instances']
             if pred.pred_masks.numel() == 0:
