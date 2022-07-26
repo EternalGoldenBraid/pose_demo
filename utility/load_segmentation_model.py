@@ -53,12 +53,12 @@ def load(model, cfg, device):
     elif model == 'bgsKNN':
         def segmentator_(image):
             mask = cv2.createBackgroundSubtractorKNN().apply(image)
-            return mask, torch.tensor(mask, device=device)
+            return mask, torch.tensor(mask, device=device), None
         segmentator = segmentator_
     elif model == 'bgsMOG2':
         def segmentator_(image):
             mask = cv2.createBackgroundSubtractorMOG2().apply(image)
-            return mask, torch.tensor(mask, device=device)
+            return mask, torch.tensor(mask, device=device), None
         segmentator = segmentator_
     elif model == 'contour':
         #segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None

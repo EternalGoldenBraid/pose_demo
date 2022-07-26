@@ -86,6 +86,12 @@ class Camera():
                             [0, 0,  1]], device='cpu') 
     
         print("Camera intrinsics:", self.cam_K)
+
+        ## We will be removing the background of objects more than
+        ##  clipping_distance_in_meters meters away
+        #clipping_distance_in_meters = 1 #1 meter
+        #clipping_distance = clipping_distance_in_meters / depth_scale
+
     
     def get_rs_frame(self):
 

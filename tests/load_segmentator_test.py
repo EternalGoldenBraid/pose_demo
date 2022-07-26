@@ -35,7 +35,10 @@ cfg.VP_NUM_TOPK = 50   # the retrieval number of viewpoint
 cfg.RANK_NUM_TOPK = 5
 cfg.USE_ICP = False
 
-models = np.array(['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'], dtype=object)
+models = np.array(
+        #['bgs', 'bgs_hsv', 'bgsmog2', 'bgsknn', 'contour', 'maskrcnn', 'point_rend'],
+        ['bgs', 'bgs_hsv', 'bgsmog2', 'bgsknn', 'contour', 'maskrcnn'],
+        dtype=object)
 models_load_ok = np.zeros(len(models), dtype=bool)
 models_segment_ok = np.zeros(len(models), dtype=bool)
 for m_idx, model_name in enumerate(models):
@@ -47,7 +50,7 @@ for m_idx, model_name in enumerate(models):
         models_load_ok[m_idx] = True
 
         ## TODO: Add True negative test!
-        mask, mask_gpu = model(cv2.imread('input.jpg'))
+        mask, mask_gpu, scores = model(cv2.imread('input.jpg'))
         if mask.size != 0:
             models_segment_ok[m_idx] = True
         else:
