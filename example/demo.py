@@ -33,7 +33,10 @@ from dataset import LineMOD_Dataset, demo_dataset
 from evaluation import utils
 from evaluation import config as cfg
 
-DEVICE = torch.device('cuda')
+#DEVICE = torch.device('cuda')
+#DEVICE = torch.device('cpu')
+#DEVICE = 'cpu'
+DEVICE = 'cuda'
 
 class PoseEstimator:
     def __init__(self, cfg, cam_K, obj_codebook, model_net, device='cpu'):
@@ -45,20 +48,43 @@ class PoseEstimator:
         self.cfg = cfg
 
     def estimate_pose(self, obj_depth, obj_mask):
+        """
+        B*height*width
+        """
 
         #tar_obj_depth = (view_depth * obj_mask).squeeze()
         pose_ret = utils.OVE6D_mask_full_pose(
             model_func=self.model_net, 
             #obj_depth=tar_obj_depth[None,:,:],
-            obj_depth=obj_depth[None,:,:], # 1*h*w
-            obj_mask=obj_mask[None,:,:], # 1*h*w
+            obj_depth=obj_depth, # 1*h*w
+            obj_mask=obj_mask, # 1*h*w
             obj_codebook=self.obj_codebook,
             cam_K=self.cam_K,
             config=self.cfg,
             obj_renderer=self.obj_renderer,
             device=DEVICE)
 
-        return pose_ret['raw_R'], pose_ret['raw_t']
+        return pose_ret['raw_R'][None,...], pose_ret['raw_t'][None,...]
+
+    def estimate_poses(self, obj_depths, obj_masks, scores):
+
+        #tar_obj_depth = (view_depth * obj_mask).squeeze()
+        pose_ret = utils.OVE6D_rcnn_full_pose(
+            model_func=self.model_net, 
+            #obj_depth=tar_obj_depth[None,:,:],
+            obj_depths=obj_depths, # N*h*w
+            obj_masks=obj_masks, # N*h*w
+            obj_rcnn_scores=scores,
+            obj_codebook=self.obj_codebook,
+            cam_K=self.cam_K,
+            config=self.cfg,
+            obj_renderer=self.obj_renderer,
+            device=DEVICE,
+            return_rcnn_idx=False # TODO role?
+            )
+
+        # TODO Add multiobject support.
+        return pose_ret['raw_R'][None,...], pose_ret['raw_t'][None,...]
 
     def __del__(self):
         del self.obj_renderer
@@ -103,8 +129,10 @@ def main(args):
     cfg.USE_ICP = args.icp
 
    #timeit.log("Realsense initialization.")
+   # TODO change to row_major for numpy...? What's torch
     cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=60)
     depth_scale, cam_K =  cam.depth_scale, cam.cam_K
+    cam_K_np = cam_K.numpy()
    #timeit.endlog()
 
     ### Segmentation
@@ -132,36 +160,34 @@ def main(args):
             device=DEVICE)
 
     # Streaming loop
-    count: int = 0
+    mod_count: int = 0
     buffer_size: int = args.buffer_size
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
-    done = True
 
-    R = torch.zeros([3,3], dtype=torch.float32, device='cpu')
-    t = torch.zeros([1,3], dtype=torch.float32, device='cpu')
     try:
         while True:
 
             fps_start = perf_counter()
-
-            #count += 1
-
+            
             depth_image, color_image = cam.get_image()
 
-            mask, mask_gpu = segmentator(color_image)
+            masks, masks_gpu, scores = segmentator(color_image)
 
             #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
-            if mask.size != 0:
+            if masks.size != 0:
 
                 #print((depth_image[mask]*depth_scale).mean())
                 #import pdb; pdb.set_trace()
-                #depth = ((depth_image.astype(float)[mask.astype(bool)]).mean())
-
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                R_old = R; t_old = t
-                R, t = pose_estimator.estimate_pose(obj_mask=mask_gpu,
-                            #obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
-                            obj_depth=torch.tensor( (depth_image*mask*depth_scale).astype(np.float32)).squeeze())
+                R, t = pose_estimator.estimate_pose(obj_mask=masks_gpu[0][None,...],
+                            obj_depth=torch.tensor(
+                                (depth_image*masks[0]*depth_scale).astype(np.float32)).squeeze()[None,...]
+                            )
+
+                ### TODO Multi object support.
+                #obj_depths = torch.tensor([(depth_image*mask*depth_scale).astype(np.float32) for mask in masks])
+                #R, t = pose_estimator.estimate_poses(obj_masks=masks_gpu, scores=scores,
+                #            obj_depths=obj_depths.squeeze())
 
                 #if count % args.buffer_size == 0:
                 #    R = R/args.buffer_size; t = t/args.buffer_size
@@ -173,11 +199,11 @@ def main(args):
                 #timeit.endlog()
                 #timeit.log("Rendering.")
 
-                #import pdb; pdb.set_trace()
-                color_image, done = dataset.render_cloud(obj_id=obj_id, 
-                        R=R.numpy().astype(np.float32), 
-                        t=t.numpy().astype(np.float32),
-                        image=color_image)
+                for transform_idx in range(R.shape[0]):
+                    color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                            R=R[transform_idx].numpy().astype(np.float32), 
+                            t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                            image=color_image)
 
                 #color_image, done = dataset.render_mesh(obj_id=obj_id, 
                 #        R=R.numpy().astype(np.float32), 
@@ -189,10 +215,13 @@ def main(args):
                     pass
 
                 images = np.hstack([ 
-                    color_image, color_image*(mask[...,None]) ])
+                    color_image, 
+                    color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    ])
                 #timeit.endlog()
             else:
                 images = np.hstack((color_image, color_image))
+
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)

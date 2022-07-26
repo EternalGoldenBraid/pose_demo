@@ -21,8 +21,11 @@ def load(model, cfg, device):
     """
     TODO: ADD TYPES
     Segmentator needs to return:
+
+    ## Returns
     mask_gpu: torch.tensor on gpu
-    mask_gpu: numpy.array
+    mask: numpy.array
+    scores: confidence scores. None if not provided.
     """
     if model == 'bgs_hsv':
         def segmentator_(image): 
@@ -44,7 +47,7 @@ def load(model, cfg, device):
             mask = ~mask
             mask = circle*mask
 
-            return mask.astype(np.uint8), torch.tensor(mask, device=device)
+            return mask.astype(np.uint8), torch.tensor(mask, device=device), None
 
         segmentator = segmentator_
     elif model == 'bgsKNN':
@@ -62,12 +65,14 @@ def load(model, cfg, device):
         def segmentator_(image):
             mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
             #import pdb; pdb.set_trace()
-            return mask, torch.tensor(mask, device=device)
+            return mask, torch.tensor(mask, device=device), None
         segmentator = segmentator_
     elif model == 'maskrcnn':
 
         none_array = np.array(())
-        model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth')
+        model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(
+                base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth',
+                device=device)
 
         import detectron2.data.transforms as T
         aug = T.ResizeShortestEdge(
@@ -80,12 +85,14 @@ def load(model, cfg, device):
                         "height": cfg.RENDER_HEIGHT, "width": cfg.RENDER_WIDTH}
             with torch.no_grad():
                 #import pdb; pdb.set_trace()
-                mask_gpu = model([inputs])[0]['instances'].get('pred_masks')
+                pred = model([inputs])[0]['instances']
+                mask_gpu = pred.get('pred_masks')
+                scores = pred.get('scores')
                 if mask_gpu.numel() == 0:
-                    return none_array, None
-                mask_cpu = mask_gpu[0].to(
+                    return none_array, None, None
+                mask_cpu = mask_gpu.to(
                         non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
-                return mask_cpu, mask_gpu[0]
+                return mask_cpu, mask_gpu, scores
         segmentator = segmentator_
     elif model == 'point_rend':
         none_array = np.array(())
@@ -94,18 +101,20 @@ def load(model, cfg, device):
         model_path = base_path+'/checkpoints/model_final_edd263_pointrend.pkl'
         
         model_seg = detectron_segmentation.load_model_point_rend(model_path=model_path,
-                config_yaml=base_path+'/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
+                config_yaml=base_path+ \
+                        '/configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
                 #config_yaml='configs/PointRend/InstanceSegmentation/pointrend_rcnn_R_50_FPN_3x_coco.yaml',
-                confidence=0.7, base_path=base_path)
+                confidence=0.7, base_path=base_path, device=device)
         def segmentator_(image, model=model_seg):
             pred = model(image)['instances']
             if pred.pred_masks.numel() == 0:
-                return none_array, None
+                return none_array, None, None
             #import pdb; pdb.set_trace()
             mask_gpu = pred.get('pred_masks')
-            mask_cpu = mask_gpu[0].to(
+            scores = pred.get('scores')
+            mask_cpu = mask_gpu.to(
                     non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
-            return mask_cpu, mask_gpu[0]
+            return mask_cpu, mask_gpu, scores
         segmentator = segmentator_
     else: 
         print("Invalid segmentation option:", model)

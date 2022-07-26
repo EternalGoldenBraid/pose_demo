@@ -13,11 +13,11 @@ from detectron2.utils.visualizer import ColorMode
 from detectron2.projects import point_rend
 from detectron2.modeling import build_model
 
-device = 'cuda'
 
 setup_logger()  # initialize the detectron2 logger and set its verbosity level to “DEBUG”.
 
-def load_model_image_agnostic(model_path='../checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth', confidence=0.7):
+def load_model_image_agnostic(model_path='../checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth', confidence=0.7,
+        device='cpu'):
     # --- detectron2 Config setup ---
     cfg = get_cfg()
     cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))  # WAS 3x.y
@@ -40,7 +40,7 @@ def load_model_image_agnostic(model_path='../checkpoints/FAT_trained_Ml2R_bin_fi
     #return predictor
 
 def load_model_point_rend(model_path='../checkpoints/model_final_ba17b9_pointrend.pkl', 
-        config_yaml='', confidence=0.7, base_path=''):
+        config_yaml='', confidence=0.7, base_path='',device='cpu'):
     
     # --- detectron2 Config setup ---
     # Add PointRend-specific config

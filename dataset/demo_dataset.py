@@ -62,7 +62,7 @@ class Dataset():
         if self.cam_K == None:
             print("Warning camera intrinsics not set.")
 
-    #@iex
+    @iex
     #@njit(parallel=True)
     def render_cloud(self, obj_id, R, t, image):
 
@@ -76,7 +76,8 @@ class Dataset():
                         [0, -1, 0],
                         [0, 0, -1]], dtype=np.float32))
         
-        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
+        #P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
+        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t)
 
         #print(np.linalg.norm((R.dot(self.point_cloud[obj_id].T) + t.T).mean(axis=1)))
         #print(np.linalg.norm((t.T).mean(axis=1)))
