@@ -21,6 +21,7 @@ def load(model, cfg, device):
     """
     TODO: ADD TYPES
     Segmentator needs to return:
+        TODO
 
     ## Returns
     mask_gpu: torch.tensor on gpu
@@ -61,11 +62,15 @@ def load(model, cfg, device):
             return mask, torch.tensor(mask, device=device), None
         segmentator = segmentator_
     elif model == 'contour':
-        #segmentator = lambda image: contour_segmentation.ContourSegmentator().get_mask(image), None
+        none_array = np.array(())
+        model = contour_segmentation.BackgroundContour()
         def segmentator_(image):
-            mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
+            #mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
+            masks = np.array(model.get_mask(image))
+            if len(masks) == 0:
+                return none_array, None, None
             #import pdb; pdb.set_trace()
-            return mask, torch.tensor(mask, device=device), None
+            return masks, torch.tensor(masks, device=device), None
         segmentator = segmentator_
     elif model == 'maskrcnn':
 

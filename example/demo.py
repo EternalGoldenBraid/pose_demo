@@ -159,6 +159,8 @@ def main(args):
             model_net=model_net_ove6d,
             device=DEVICE)
 
+    dataset.object_renderer = pose_estimator.obj_renderer
+
     # Streaming loop
     mod_count: int = 0
     buffer_size: int = args.buffer_size
@@ -205,10 +207,10 @@ def main(args):
                             t=t[transform_idx].numpy()[...,None].astype(np.float32),
                             image=color_image)
 
-                #color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                #        R=R.numpy().astype(np.float32), 
-                #        t=t.numpy().astype(np.float32),
-                #        image=color_image)
+                    #color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                    #        R=R[transform_idx].numpy().astype(np.float32), 
+                    #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #        image=color_image)
 
                 #import pdb; pdb.set_trace()
                 if args.render_mesh:
