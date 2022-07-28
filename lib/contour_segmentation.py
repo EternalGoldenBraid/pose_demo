@@ -104,12 +104,13 @@ class BackgroundContour():
             tmp = tmp>30
             fgMask = np.uint8(tmp)*255
 
-        contours, hierarchy = cv2.findContours(fgMask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        #contours, hierarchy = cv2.findContours(fgMask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hierarchy = cv2.findContours(fgMask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
         area = np.array([cv2.contourArea(cnt) for cnt in contours])
         contours = [contours[i] for i in range(len(contours)) if area[i] > 100]
 
-        masks = np.array([cv2.drawContours(np.zeros((480, 640)), c, -1, (255,255,255), 3) for c in contours])
-        return (masks//255).astype(np.uint8)
+        masks = np.array([cv2.drawContours(np.zeros((480, 640)), c, -1, (1,1,1), 3) for c in contours])
+        return (masks).astype(np.uint8)
 
         #for contour in contours:
         #    x,y,w,h = cv2.boundingRect(contour)
@@ -128,52 +129,98 @@ class BackgroundContour():
 
 if __name__=='__main__':
 
-    # initialize video from the webcam
-    #video = cv2.VideoCapture(cv2.CAP_V4L2)
-    video = cv2.VideoCapture(0)
-    segs = [ContourSegmentator(), BackgroundContour()]
-    seg = segs[1]
-    while True:
-        start = time()
-        ret, frame = video.read()
-        if ret == True:
-    
-            masks = seg.get_mask(frame)
+    import sys
+    print("In module products sys.path[0], __package__ ==", sys.path[0], __package__)
+    base_path = os.path.dirname(os.path.abspath("."))
+    print("Base_path:", base_path)
+    sys.path.append(base_path)
 
-            if len(masks) == 0:
-                continue
+    from utility.cam_control import Camera
 
-            masks = masks[0]
-    
-            ## Ensures data types match up
-            #mask = (mask.astype('float32') / 255.0)
-            #frame = frame.astype('float32') / 255.0
-    
-            ## Blend the image and the mask
-            ##masked = (mask[...,None] * frame) + ((1-mask[...,None]) * mask_color)
-            ##masked = (masked * 255).astype('uint8')
-            ##cv2.imshow("Foreground", np.hstack[(masked, (frame*255).astype('uint8'))])
-            ##import pdb; pdb.set_trace()
-            ##images = np.hstack((masked, (frame*255).astype('uint8')))
-    
-            #edges = edges.astype('float32')/255
-            #edges = np.dstack( (edges, edges, edges) )
+    if True:
+        ### REALSENSE
+        cam = Camera(size=(640, 480), framerate=60)
+        depth_scale, cam_K =  cam.depth_scale, cam.cam_K
 
-            images = np.hstack((frame*masks[...,None], frame))
-            #cv2.imshow("Foreground", np.hstack([(masked, (frame*255).astype('uint8'))]))
+        segs = [ContourSegmentator(), BackgroundContour()]
+        seg = segs[1]
+        while True:
+            print("HEP")
+            start = time()
+            #ret, frame = cam.read()
+            depth_image, color_image = cam.get_image()
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+        
+            masks = seg.get_mask(color_image)
+
+            if len(masks) != 0:
+                #masks = masks[0] 
+                images = np.concatenate((color_image, color_image*masks.sum(axis=0, dtype=np.uint8)[...,None]), axis=1)
+                cv2.imshow("Foreground", images)
+                #cv2.imshow("Foreground", mask)
+        
+                print("Time: ", time()-start)
+        
+            else: 
+                images = np.concatenate((color_image, depth_colormap), axis=1)
+
             cv2.imshow("Foreground", images)
-            #cv2.imshow("Foreground", mask)
-    
-            print("Time: ", time()-start)
-    
+
             ## Use the q button to quit the operation
             key = cv2.waitKey(1)
             # Press esc or 'q' to close the image window
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
                 break
-        else: 
-            continue
+        del cam
+    else:
+        # initialize video from the webcam
+        #cam = cv2.VideoCapture(cv2.CAP_V4L2)
+        cam = cv2.VideoCapture(0)
+        segs = [ContourSegmentator(), BackgroundContour()]
+        seg = segs[1]
+        while True:
+            start = time()
+            #ret, frame = cam.read()
+            depth_image, color_image = cam.get_image()
+            if ret == True:
+        
+                masks = seg.get_mask(frame)
+
+                if len(masks) == 0:
+                    continue
+
+                masks = masks[0]
+        
+                ## Ensures data types match up
+                #mask = (mask.astype('float32') / 255.0)
+                #frame = frame.astype('float32') / 255.0
+        
+                ## Blend the image and the mask
+                ##masked = (mask[...,None] * frame) + ((1-mask[...,None]) * mask_color)
+                ##masked = (masked * 255).astype('uint8')
+                ##cv2.imshow("Foreground", np.hstack[(masked, (frame*255).astype('uint8'))])
+                ##import pdb; pdb.set_trace()
+                ##images = np.hstack((masked, (frame*255).astype('uint8')))
+        
+                #edges = edges.astype('float32')/255
+                #edges = np.dstack( (edges, edges, edges) )
+
+                images = np.hstack((frame*masks[...,None], frame))
+                #cv2.imshow("Foreground", np.hstack([(masked, (frame*255).astype('uint8'))]))
+                cv2.imshow("Foreground", images)
+                #cv2.imshow("Foreground", mask)
+        
+                print("Time: ", time()-start)
+        
+                ## Use the q button to quit the operation
+                key = cv2.waitKey(1)
+                # Press esc or 'q' to close the image window
+                if key & 0xFF == ord('q') or key == 27:
+                    cv2.destroyAllWindows()
+                    break
+            else: 
+                continue
     
-    cv2.destroyAllWindows()
-    video.release()
+        cv2.destroyAllWindows()
+        video.release()
