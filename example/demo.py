@@ -144,7 +144,7 @@ def main(args):
 
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
-                n_points=args.n_points)
+                n_triangles=args.n_triangles)
 
     model_path = 'checkpoints'
     model_file = "OVE6D_pose_model.pth"
@@ -202,25 +202,21 @@ def main(args):
                 #timeit.log("Rendering.")
 
                 for transform_idx in range(R.shape[0]):
-                    color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                    rendered_color_image, done = dataset.render_cloud(obj_id=obj_id, 
                             R=R[transform_idx].numpy().astype(np.float32), 
                             t=t[transform_idx].numpy()[...,None].astype(np.float32),
                             image=color_image)
 
-                    #color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                    #        R=R[transform_idx].numpy().astype(np.float32), 
-                    #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                    #        image=color_image)
+                    #rendered_color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                    #         R=R[transform_idx].numpy().astype(np.float32), 
+                    #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #         image=color_image.copy())
 
-                #import pdb; pdb.set_trace()
-                if args.render_mesh:
-                    pass
 
                 images = np.hstack([ 
-                    color_image, 
+                    rendered_color_image, 
                     color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
-                #timeit.endlog()
             else:
                 images = np.hstack((color_image, color_image))
 
@@ -248,7 +244,7 @@ if __name__=="__main__":
     parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
                         type=int, required=False, default=3,
                         help='Frame buffer for smoothing.')
-    parser.add_argument('-n', '--n_points', dest='n_points',
+    parser.add_argument('-n', '--n_triangles', dest='n_triangles',
                         type=int, required=False, default=2000,
                         help='Number of points for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',

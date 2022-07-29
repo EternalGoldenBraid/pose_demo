@@ -7,6 +7,7 @@ import numpy as np
 from scipy.spatial import Delaunay
 import torch
 from pytorch3d.io import load_ply
+import open3d as o3d
 from numpy.random import default_rng
 from ipdb import iex
 
@@ -16,7 +17,7 @@ from lib import rendering
 
 class Dataset():
     def __init__(self, data_dir, cfg, 
-            cam_K, cam_height, cam_width, n_points, object_renderer=None):
+            cam_K, cam_height, cam_width, n_triangles, object_renderer=None):
         self.model_dir = Path(data_dir) / 'models_eval'
         self.cam_file = Path(data_dir) / 'camera.json'
         self.cam_K = cam_K
@@ -30,7 +31,7 @@ class Dataset():
         self.faces = dict()
         self.object_renderer = object_renderer
         self.cfg = cfg
-        self.n_points: int = n_points # Number of points
+        self.n_triangles: int = n_triangles # Number of points
 
         self.model_info_file = self.model_dir / 'models_info.json'
         #self.model_info_file = os.path.abspath(os.path.join(
@@ -47,20 +48,11 @@ class Dataset():
                 obj_id = int(model_file.name.split('_')[-1].split('.')[0])
                 self.obj_model_file[obj_id] = model_file
                 self.obj_diameter[obj_id] = self.model_info[str(obj_id)]['diameter']
-                self.point_cloud[obj_id], self.faces[obj_id] = load_ply(model_file)
-                print(model_file)
-                self.point_cloud[obj_id] = self.point_cloud[obj_id].numpy()
-                self.faces[obj_id] = self.faces[obj_id].numpy()
 
-                if self.point_cloud[obj_id].shape[0] > self.n_points:
-                    idxs = rng.integers(low=0, 
-                            high=self.point_cloud[obj_id].shape[0], size=self.n_points)
-                    self.point_cloud[obj_id] = self.point_cloud[obj_id][idxs]
-                    self.faces[obj_id] = self.faces[obj_id][idxs]
-
-                    # 
-
-
+                mesh = o3d.io.read_triangle_mesh(filename=str(model_file))
+                mesh = mesh.simplify_quadric_decimation(target_number_of_triangles=n_triangles)
+                self.point_cloud[obj_id] = np.asanyarray(mesh.vertices)
+                self.faces[obj_id] = np.asanyarray(mesh.triangles)
 
         if self.cam_K == None:
             print("Warning camera intrinsics not set.")
@@ -82,9 +74,6 @@ class Dataset():
         #P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
         P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t)
 
-        #print(np.linalg.norm((R.dot(self.point_cloud[obj_id].T) + t.T).mean(axis=1)))
-        #print(np.linalg.norm((t.T).mean(axis=1)))
-        
         P = P // P[-1,:]
 
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
@@ -106,20 +95,15 @@ class Dataset():
                         [0, -1, 0],
                         [0, 0, -1]], dtype=np.float32))
         
-        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t.T)
-        F = self.cam_K_np.dot(R.dot(self.faces[obj_id].T) + t.T)
-
+        P = self.cam_K_np.dot(R.dot(self.point_cloud[obj_id].T) + t).squeeze()
         P = P // P[-1,:]
-        F = F // F[-1,:]
 
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
             return image, False
-        
-        P = P.astype(np.float32)
-        F = F.astype(np.int32)
+        P = P.astype(np.int32)
+        image = cv2.fillPoly(image, pts=np.array(P.T[self.faces[obj_id][:,:2]][:,:,:2]), color=(255, 0, 0))
 
-        #import pdb; pdb.set_trace()
-        cv2.fillPoly(image, pts=P[self.faces[obj_id]], color=(255, 0, 0))
+        return image, True
 
     def render_depth(self, obj_id, R, t, mesh):
         self.obj_renderer = rendering.Renderer(width=self.cfg.RENDER_WIDTH, height=self.cfg.RENDER_HEIGHT)
