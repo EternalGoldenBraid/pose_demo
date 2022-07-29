@@ -66,10 +66,9 @@ def load(model, cfg, device):
         model = contour_segmentation.BackgroundContour()
         def segmentator_(image):
             #mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
-            masks = np.array(model.get_mask(image))
+            masks = model.get_mask(image)
             if len(masks) == 0:
                 return none_array, None, None
-            #import pdb; pdb.set_trace()
             return masks, torch.tensor(masks, device=device), None
         segmentator = segmentator_
     elif model == 'maskrcnn':

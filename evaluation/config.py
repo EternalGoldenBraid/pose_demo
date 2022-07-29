@@ -27,8 +27,10 @@ ICP_min_planarity = 0.2
 ICP_max_iterations = 20     # max iterations for ICP
 ICP_correspondences = 1000  # the number of points selected for iteration
 
-VP_NUM_TOPK = 50   # the number of viewpoint retrievals TODO: Is this uniform sampling?
-POSE_NUM_TOPK = 10  # the number of pose hypotheses TODO: And top
+#VP_NUM_TOPK = 50   # the number of viewpoint retrievals TODO: Is this uniform sampling?
+VP_NUM_TOPK = 5   # the number of viewpoint retrievals TODO: Is this uniform sampling?
+#POSE_NUM_TOPK = 10  # the number of pose hypotheses TODO: And top
+POSE_NUM_TOPK = 1  # the number of pose hypotheses TODO: And top
 
 
 DATA_PATH = 'Dataspace'

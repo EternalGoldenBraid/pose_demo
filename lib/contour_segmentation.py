@@ -109,8 +109,11 @@ class BackgroundContour():
         area = np.array([cv2.contourArea(cnt) for cnt in contours])
         contours = [contours[i] for i in range(len(contours)) if area[i] > 100]
 
-        masks = np.array([cv2.drawContours(np.zeros((480, 640)), c, -1, (1,1,1), 3) for c in contours])
-        return (masks).astype(np.uint8)
+        #masks = np.array([cv2.drawContours(np.zeros((480, 640)), c, -1, (1,1,1), 3) for c in contours])
+        masks = np.array([cv2.drawContours(np.zeros((480, 640)), [c], -1, (1,1,1), cv2.FILLED) for c in contours])
+        #masks = cv2.drawContours(np.zeros((480, 640)), contours, -1, (1,1,1), 3)[...,None]
+        return masks.astype(int).astype(np.uint8)
+        #return (masks).astype(np.uint8)
 
         #for contour in contours:
         #    x,y,w,h = cv2.boundingRect(contour)
@@ -145,22 +148,15 @@ if __name__=='__main__':
         segs = [ContourSegmentator(), BackgroundContour()]
         seg = segs[1]
         while True:
-            print("HEP")
-            start = time()
-            #ret, frame = cam.read()
             depth_image, color_image = cam.get_image()
-            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
-        
-            masks = seg.get_mask(color_image)
+            depth_colormap = cv2.applyColorMap(
+                    cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
+            masks = seg.get_mask(color_image)
             if len(masks) != 0:
-                #masks = masks[0] 
                 images = np.concatenate((color_image, color_image*masks.sum(axis=0, dtype=np.uint8)[...,None]), axis=1)
+                #images = np.concatenate((color_image, depth_colormap*masks.sum(axis=0, dtype=np.uint8)[...,None]), axis=1)
                 cv2.imshow("Foreground", images)
-                #cv2.imshow("Foreground", mask)
-        
-                print("Time: ", time()-start)
-        
             else: 
                 images = np.concatenate((color_image, depth_colormap), axis=1)
 

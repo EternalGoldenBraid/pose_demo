@@ -175,7 +175,7 @@ def main(args):
 
             masks, masks_gpu, scores = segmentator(color_image)
 
-            #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if masks.size != 0:
 
                 #print((depth_image[mask]*depth_scale).mean())
@@ -202,23 +202,24 @@ def main(args):
                 #timeit.log("Rendering.")
 
                 for transform_idx in range(R.shape[0]):
-                    rendered_color_image, done = dataset.render_cloud(obj_id=obj_id, 
-                            R=R[transform_idx].numpy().astype(np.float32), 
-                            t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                            image=color_image)
+                    #rendered_color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                    #        R=R[transform_idx].numpy().astype(np.float32), 
+                    #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #        image=color_image)
 
-                    #rendered_color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                    #         R=R[transform_idx].numpy().astype(np.float32), 
-                    #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                    #         image=color_image.copy())
+                    rendered_color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                             R=R[transform_idx].numpy().astype(np.float32), 
+                             t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                             image=color_image.copy())
 
 
                 images = np.hstack([ 
                     rendered_color_image, 
-                    color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
             else:
-                images = np.hstack((color_image, color_image))
+                images = np.hstack((color_image, depth_colormap))
 
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
@@ -256,8 +257,9 @@ if __name__=="__main__":
         head_phones = 3
         engine_main = 4
         dual_sphere = 5
-        foo = 6
+        tea = 6
         bolt = 7
+        wrench = 8
 
 
     
@@ -277,7 +279,7 @@ if __name__=="__main__":
                         help='Frame buffer for smoothing.')
     parser.add_argument('-n', '--n_triangles', dest='n_triangles',
                         type=int, required=False, default=2000,
-                        help='Number of points for cloud/mesh.')
+                        help='Number of triangles for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',
                         required=False, default='maskrcnn',
                         choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
