@@ -745,3 +745,142 @@ def OVE6D_rcnn_rotation_estimation(input_depth, rcnn_score, model_net, object_co
     return final_R.cpu(), final_S.cpu(), best_rcnn_idx
  
 
+def OVE6D_multiobject_full_pose(model_func, obj_depths, obj_masks, obj_rcnn_scores, obj_codebook, cam_K, config, obj_renderer, device, return_rcnn_idx=False):
+    """
+    Perform OVE6D with multiple masks predicted by Mask-RCNN
+    Full pipeline (Mask-RCNN + OVE6D)
+    take advantage of the detection confidence scores
+    """
+    pose_ret = dict()
+    cam_K = cam_K.to(device)
+    obj_masks = obj_masks.to(device)
+    obj_depths = obj_depths.to(device)
+    
+    obj_depths = background_filter(obj_depths, obj_codebook['diameter']) # filter out outliers
+    obj_masks[obj_depths<0] = 0
+    obj_zoom_dist = config.ZOOM_DIST_FACTOR * obj_codebook['diameter'] * cam_K.squeeze().cpu()[0, 0]
+    zoom_test_depths, init_ts = input_zoom_preprocess(input_depth=obj_depths, 
+                                                        input_mask=obj_masks, 
+                                                        intrinsic=cam_K, 
+                                                        device=device, 
+                                                        target_zoom_dist=obj_zoom_dist,
+                                                        zoom_scale_mode=config.ZOOM_MODE, 
+                                                        zoom_size=config.ZOOM_SIZE) # 1xHxW
+
+    (estimated_R, estimated_scores, 
+    estimated_rcnn_idx) = OVE6D_rcnn_rotation_estimation(input_depth=zoom_test_depths,
+                                                        rcnn_score=obj_rcnn_scores,
+                                                        model_net=model_func,
+                                                        object_codebook=obj_codebook, 
+                                                        cfg=config)  
+    num_proposals = len(estimated_R)
+    init_t = init_ts[estimated_rcnn_idx] 
+    obj_depth = obj_depths[estimated_rcnn_idx] 
+
+    raw_est_Rs = []
+    raw_est_ts = []
+    raw_masks = []
+    raw_depths = []
+
+    tsl_cost = 0
+    raw_syn_cost = 0
+
+    obj_context = rendering.SceneContext(obj=obj_codebook['obj_mesh'], intrinsic=cam_K.cpu()) # define a scene
+    for idx, (obj_est_R, obj_est_score) in enumerate(zip(estimated_R, estimated_scores)):
+        tsl_timer = time.time()
+        obj_est_t = OVE6D_translation_estimation(est_R=obj_est_R, 
+                                                est_t=init_t, 
+                                                intrinsic=cam_K, 
+                                                obj_scene=obj_context, 
+                                                obj_render=obj_renderer)
+        tsl_cost += (time.time() - tsl_timer)
+        # tsl_top1_cost.append(time.time() - tsl_timer)
+        raw_est_Rs.append(obj_est_R)
+        raw_est_ts.append(obj_est_t)
+        
+        if num_proposals > 1:
+            syn_timer = time.time() # synthesize depth image for post-process (hypotheses selection)if multiple hypotheses provided
+            obj_context.set_pose(rotation=obj_est_R, translation=obj_est_t)
+            refined_est_depth, refined_est_mask = obj_renderer.render(obj_context)[1:]
+            raw_depths.append(refined_est_depth)
+            raw_masks.append(refined_est_mask)
+            raw_syn_cost += (time.time() - syn_timer)
+
+    raw_cost = bg_cost + zoom_cost + rot_cost + tsl_cost
+    raw_select_cost = 0
+    best_topk_raw_idx = 0
+    if num_proposals > 1: # pose hypotheses selection if multiple hypotheses provided
+        postp_timer = time.time() 
+        topk_raw_depths = torch.stack(raw_depths, dim=0).to(obj_depth.device)
+        topk_raw_masks = torch.stack(raw_masks, dim=0).to(obj_depth.device)
+        rawk_err_depths = (topk_raw_depths - obj_depth).abs() > obj_codebook['diameter'] * 0.1 # outliers
+        topk_raw_errors = rawk_err_depths.view(num_proposals, -1).sum(-1) / topk_raw_masks.view(num_proposals, -1).sum(-1)
+        _, best_topk_raw_idx = torch.topk(-topk_raw_errors, k=1)
+        obj_raw_R = raw_est_Rs[best_topk_raw_idx]
+        obj_raw_t = raw_est_ts[best_topk_raw_idx]
+        obj_score = estimated_scores[best_topk_raw_idx]
+        raw_select_cost = time.time() - postp_timer
+    else:
+        obj_raw_R = raw_est_Rs[0]
+        obj_raw_t = raw_est_ts[0]
+        obj_score = estimated_scores[0]
+    raw_postp_cost = raw_syn_cost + raw_select_cost 
+    raw_cost += raw_postp_cost
+
+    pose_ret['rcnn_idx'] = estimated_rcnn_idx
+    pose_ret['raw_R'] = obj_raw_R
+    pose_ret['raw_t'] = obj_raw_t
+    pose_ret['raw_score'] = obj_score
+    pose_ret['raw_time'] = raw_cost
+
+    pose_ret['bg_time'] = bg_cost 
+    pose_ret['zoom_time'] = zoom_cost 
+    pose_ret['rot_time'] = rot_cost
+    pose_ret['tsl_time'] = tsl_cost
+    
+    pose_ret['raw_syn_time'] = raw_syn_cost
+    pose_ret['raw_select_time'] = raw_select_cost
+    pose_ret['raw_postp_time'] = raw_postp_cost
+
+    if return_rcnn_idx: # return the index of the final selected segmentation mask predicted by RCNN
+        return pose_ret, estimated_rcnn_idx
+    return pose_ret
+
+def OVE6D_multiobject_rotation_estimation(input_depth, rcnn_score, model_net, object_codebooks, cfg):
+    obj_codebook_Rs = object_codebook['Rs']       # 4000 x 3 x 3
+    obj_codebook_Z_vec = object_codebook['Z_vec'] # 4000 x 64
+    obj_codebook_Z_map = object_codebook['Z_map'] # 4000 x 128 x 8 x 8
+    
+    with torch.no_grad():
+        obj_query_z_map, obj_query_z_vec = model_net.vipri_encoder(input_depth, return_maps=True)
+    vp_obj_cosim_scores = F.cosine_similarity(obj_codebook_Z_vec.unsqueeze(0).to(obj_query_z_vec.device), # 1x4000x64
+                                                obj_query_z_vec.unsqueeze(1), dim=2) # Mx1x64 => Mx4000
+    # multiple instances of a single object exist and we select the best instance for the object
+    mean_vp_obj_cosim_scores = vp_obj_cosim_scores.topk(k=1, dim=1)[0].mean(dim=1).squeeze() # M
+    fused_obj_scores = mean_vp_obj_cosim_scores * rcnn_score.to(mean_vp_obj_cosim_scores.device)
+
+    best_rcnn_idx = fused_obj_scores.max(dim=0)[1] # 
+    best_obj_cosim_scores = vp_obj_cosim_scores[best_rcnn_idx] # (4000,)
+    best_obj_query_z_map = obj_query_z_map[best_rcnn_idx][None, ...] # 
+    topK_cosim_idxes = best_obj_cosim_scores.topk(k=cfg.VP_NUM_TOPK)[1]
+
+    estimated_scores = best_obj_cosim_scores[topK_cosim_idxes]#.detach().cpu()
+    retrieved_codebook_R = obj_codebook_Rs[topK_cosim_idxes].clone()    # K x 3 x 3
+    top_codebook_z_maps = obj_codebook_Z_map[topK_cosim_idxes, ...]
+    
+    with torch.no_grad():
+        query_theta, pd_conf = model_net.inference(top_codebook_z_maps.to(best_obj_query_z_map.device), 
+                                                    best_obj_query_z_map.expand_as(top_codebook_z_maps))
+    stn_theta = F.pad(query_theta[:, :2, :2].clone(), (0, 1))
+    
+    homo_z_R = F.pad(stn_theta, (0, 0, 0, 1))
+    homo_z_R[:, -1, -1] = 1.0
+    estimated_xyz_R = homo_z_R @ retrieved_codebook_R.to(homo_z_R.device)
+    pd_conf = pd_conf.squeeze(1)
+    sorted_idxes = pd_conf.topk(k=len(pd_conf))[1]
+
+    final_R = estimated_xyz_R[sorted_idxes][:cfg.POSE_NUM_TOPK]
+    final_S = estimated_scores[sorted_idxes][:cfg.POSE_NUM_TOPK]
+   
+    return final_R.cpu(), final_S.cpu(), best_rcnn_idx
+

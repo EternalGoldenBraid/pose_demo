@@ -2,6 +2,7 @@ import os
 import time
 import glob
 import math
+import re
 import torch
 import numpy as np
 import torch.nn.functional as F
@@ -212,47 +213,96 @@ def viewpoint_sampling_and_encoding(model_func, obj_model_file, obj_diameter, co
             "obj_mesh":obj_mesh,
            }
 
+def create_codebook(obj_id, config, model_func, obj_model_file,
+        intrinsic, device, obj_diameter, codebook_dir):
+    # from milimeter to meter
+    obj_cbk = viewpoint_sampling_and_encoding(model_func=model_func,
+                  obj_model_file=obj_model_file,
+                  obj_diameter=obj_diameter,
+                  config=config,
+                  intrinsic=intrinsic,
+                  device=device)                                              
+
+    codebook_file = os.path.join(codebook_dir, 
+                    '{}_obj_{:02d}_views_{}.npy'.format(
+                    config.DATASET_NAME, obj_id, config.RENDER_NUM_VIEWS))
+                   
+    with open(codebook_file, 'wb') as f:
+        np.save(f, obj_cbk)
+
+    return obj_cbk
 
 def OVE6D_codebook_generation(model_func, codebook_dir, dataset, config, device):
     object_codebooks = dict()
 
-    codebook_files = sorted(glob.glob(os.path.join(codebook_dir, 
-                            '*_views_{}.npy'.format(config.RENDER_NUM_VIEWS))))
+    codebook_files = np.array(sorted(glob.glob(os.path.join(codebook_dir, 
+                            '*_views_{}.npy'.format(config.RENDER_NUM_VIEWS)))),
+                            dtype=object)
+
     intrinsic = dataset.cam_K
     obj_model_files = dataset.obj_model_file
     obj_diameter_info = dataset.obj_diameter
 
     num_objects = len(obj_model_files)
 
-    ### TODO Change this to load the existing files.
-    if len(codebook_files) == num_objects:  # pre-built codebooks exist, load it
+    if len(codebook_files) == 0:
+        if not os.path.exists(codebook_dir):
+            os.makedirs(codebook_dir)
+
+        # No codebooks exist. Render all object models.
+        print('No codebook files found, generating codebooks.')
+        for obj_id, obj_model_file in obj_model_files.items():
+
+            print("Generating codebook for object:", obj_id, end=" .")
+
+            obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING # from milimeter to meter
+            obj_cbk = create_codebook(obj_id=obj_id, config=config, model_func=model_func,
+                        obj_model_file=obj_model_file, intrinsic=intrinsic, device=device,
+                        obj_diameter=obj_diameter, codebook_dir=codebook_dir)
+
+            object_codebooks[obj_id] = obj_cbk
+            
+            print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
+
+    else: 
+        # pre-built codebooks exist, load existing ones.
         for obj_cbk_file in codebook_files:
             cbk_name = obj_cbk_file.split('/')[-1]
             obj_id = int(cbk_name.split('_')[-3])    # _obj_{:02d}_views_{}.npy
             print('Loading ', obj_cbk_file)
             with open(obj_cbk_file, 'rb') as f:
                 object_codebooks[obj_id] = np.load(f, allow_pickle=True).item()
-    else:
-        print('generating codebook for {} viewpoints ...'.format(config.RENDER_NUM_VIEWS))
-        for obj_id, obj_model_file in obj_model_files.items():
-            obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING # from milimeter to meter
-            obj_cbk = viewpoint_sampling_and_encoding(model_func=model_func,
-                                                            obj_model_file=obj_model_file,
-                                                            obj_diameter=obj_diameter,
-                                                            config=config,
-                                                            intrinsic=intrinsic,
-                                                            device=device)                                              
-            if not os.path.exists(codebook_dir):
-                os.makedirs(codebook_dir)
-            codebook_file = os.path.join(codebook_dir, 
-                            '{}_obj_{:02d}_views_{}.npy'.format(
-                            config.DATASET_NAME, obj_id, config.RENDER_NUM_VIEWS))
-                           
-            with open(codebook_file, 'wb') as f:
-                np.save(f, obj_cbk)
-            object_codebooks[obj_id] = obj_cbk
-            
-            print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
+
+
+        #TODO: Unnecessary regex. See obj_id collection above.
+        pattern = re.compile('[1-9]0*_views')
+        existing_obj_ids = [int(pattern.findall(file)[0].split('_')[0]) for file in codebook_files]
+
+        import pdb; pdb.set_trace()
+        if len(codebook_files) < num_objects:
+            # Codebooks don't exist for all models. Render the for unexisting codebooks.
+            print(f'Objects missing from codebook.')
+            print('generating codebook for {} viewpoints ...'.format(config.RENDER_NUM_VIEWS))
+
+            print("Existing object_ids:", existing_obj_ids)
+
+
+            #for obj_id, obj_model_file in tqdm(obj_model_files.items()):
+            for obj_id, obj_model_file in obj_model_files.items():
+
+                # Skip models that already exist.
+                if obj_id in existing_obj_ids: 
+                    continue
+
+                print("Generating codebook for object:", obj_id)
+                obj_diameter = obj_diameter_info[obj_id] * config.MODEL_SCALING 
+                obj_cbk = create_codebook(obj_id=obj_id, config=config, model_func=model_func,
+                            obj_model_file=obj_model_file, intrinsic=intrinsic, device=device,
+                            obj_diameter=obj_diameter, codebook_dir=codebook_dir)
+
+                object_codebooks[obj_id] = obj_cbk
+                
+                print('obj_id: ', obj_id, time.strftime('%m_%d-%H:%M:%S', time.localtime()))
     return object_codebooks
 
 
@@ -695,4 +745,143 @@ def OVE6D_rcnn_rotation_estimation(input_depth, rcnn_score, model_net, object_co
    
     return final_R.cpu(), final_S.cpu(), best_rcnn_idx
  
+
+def OVE6D_multiobject_full_pose(model_func, obj_depths, obj_masks, obj_rcnn_scores, obj_codebook, cam_K, config, obj_renderer, device, return_rcnn_idx=False):
+    """
+    Perform OVE6D with multiple masks predicted by Mask-RCNN
+    Full pipeline (Mask-RCNN + OVE6D)
+    take advantage of the detection confidence scores
+    """
+    pose_ret = dict()
+    cam_K = cam_K.to(device)
+    obj_masks = obj_masks.to(device)
+    obj_depths = obj_depths.to(device)
+    
+    obj_depths = background_filter(obj_depths, obj_codebook['diameter']) # filter out outliers
+    obj_masks[obj_depths<0] = 0
+    obj_zoom_dist = config.ZOOM_DIST_FACTOR * obj_codebook['diameter'] * cam_K.squeeze().cpu()[0, 0]
+    zoom_test_depths, init_ts = input_zoom_preprocess(input_depth=obj_depths, 
+                                                        input_mask=obj_masks, 
+                                                        intrinsic=cam_K, 
+                                                        device=device, 
+                                                        target_zoom_dist=obj_zoom_dist,
+                                                        zoom_scale_mode=config.ZOOM_MODE, 
+                                                        zoom_size=config.ZOOM_SIZE) # 1xHxW
+
+    (estimated_R, estimated_scores, 
+    estimated_rcnn_idx) = OVE6D_rcnn_rotation_estimation(input_depth=zoom_test_depths,
+                                                        rcnn_score=obj_rcnn_scores,
+                                                        model_net=model_func,
+                                                        object_codebook=obj_codebook, 
+                                                        cfg=config)  
+    num_proposals = len(estimated_R)
+    init_t = init_ts[estimated_rcnn_idx] 
+    obj_depth = obj_depths[estimated_rcnn_idx] 
+
+    raw_est_Rs = []
+    raw_est_ts = []
+    raw_masks = []
+    raw_depths = []
+
+    tsl_cost = 0
+    raw_syn_cost = 0
+
+    obj_context = rendering.SceneContext(obj=obj_codebook['obj_mesh'], intrinsic=cam_K.cpu()) # define a scene
+    for idx, (obj_est_R, obj_est_score) in enumerate(zip(estimated_R, estimated_scores)):
+        tsl_timer = time.time()
+        obj_est_t = OVE6D_translation_estimation(est_R=obj_est_R, 
+                                                est_t=init_t, 
+                                                intrinsic=cam_K, 
+                                                obj_scene=obj_context, 
+                                                obj_render=obj_renderer)
+        tsl_cost += (time.time() - tsl_timer)
+        # tsl_top1_cost.append(time.time() - tsl_timer)
+        raw_est_Rs.append(obj_est_R)
+        raw_est_ts.append(obj_est_t)
+        
+        if num_proposals > 1:
+            syn_timer = time.time() # synthesize depth image for post-process (hypotheses selection)if multiple hypotheses provided
+            obj_context.set_pose(rotation=obj_est_R, translation=obj_est_t)
+            refined_est_depth, refined_est_mask = obj_renderer.render(obj_context)[1:]
+            raw_depths.append(refined_est_depth)
+            raw_masks.append(refined_est_mask)
+            raw_syn_cost += (time.time() - syn_timer)
+
+    raw_cost = bg_cost + zoom_cost + rot_cost + tsl_cost
+    raw_select_cost = 0
+    best_topk_raw_idx = 0
+    if num_proposals > 1: # pose hypotheses selection if multiple hypotheses provided
+        postp_timer = time.time() 
+        topk_raw_depths = torch.stack(raw_depths, dim=0).to(obj_depth.device)
+        topk_raw_masks = torch.stack(raw_masks, dim=0).to(obj_depth.device)
+        rawk_err_depths = (topk_raw_depths - obj_depth).abs() > obj_codebook['diameter'] * 0.1 # outliers
+        topk_raw_errors = rawk_err_depths.view(num_proposals, -1).sum(-1) / topk_raw_masks.view(num_proposals, -1).sum(-1)
+        _, best_topk_raw_idx = torch.topk(-topk_raw_errors, k=1)
+        obj_raw_R = raw_est_Rs[best_topk_raw_idx]
+        obj_raw_t = raw_est_ts[best_topk_raw_idx]
+        obj_score = estimated_scores[best_topk_raw_idx]
+        raw_select_cost = time.time() - postp_timer
+    else:
+        obj_raw_R = raw_est_Rs[0]
+        obj_raw_t = raw_est_ts[0]
+        obj_score = estimated_scores[0]
+    raw_postp_cost = raw_syn_cost + raw_select_cost 
+    raw_cost += raw_postp_cost
+
+    pose_ret['rcnn_idx'] = estimated_rcnn_idx
+    pose_ret['raw_R'] = obj_raw_R
+    pose_ret['raw_t'] = obj_raw_t
+    pose_ret['raw_score'] = obj_score
+    pose_ret['raw_time'] = raw_cost
+
+    pose_ret['bg_time'] = bg_cost 
+    pose_ret['zoom_time'] = zoom_cost 
+    pose_ret['rot_time'] = rot_cost
+    pose_ret['tsl_time'] = tsl_cost
+    
+    pose_ret['raw_syn_time'] = raw_syn_cost
+    pose_ret['raw_select_time'] = raw_select_cost
+    pose_ret['raw_postp_time'] = raw_postp_cost
+
+    if return_rcnn_idx: # return the index of the final selected segmentation mask predicted by RCNN
+        return pose_ret, estimated_rcnn_idx
+    return pose_ret
+
+def OVE6D_multiobject_rotation_estimation(input_depth, rcnn_score, model_net, object_codebooks, cfg):
+    obj_codebook_Rs = object_codebook['Rs']       # 4000 x 3 x 3
+    obj_codebook_Z_vec = object_codebook['Z_vec'] # 4000 x 64
+    obj_codebook_Z_map = object_codebook['Z_map'] # 4000 x 128 x 8 x 8
+    
+    with torch.no_grad():
+        obj_query_z_map, obj_query_z_vec = model_net.vipri_encoder(input_depth, return_maps=True)
+    vp_obj_cosim_scores = F.cosine_similarity(obj_codebook_Z_vec.unsqueeze(0).to(obj_query_z_vec.device), # 1x4000x64
+                                                obj_query_z_vec.unsqueeze(1), dim=2) # Mx1x64 => Mx4000
+    # multiple instances of a single object exist and we select the best instance for the object
+    mean_vp_obj_cosim_scores = vp_obj_cosim_scores.topk(k=1, dim=1)[0].mean(dim=1).squeeze() # M
+    fused_obj_scores = mean_vp_obj_cosim_scores * rcnn_score.to(mean_vp_obj_cosim_scores.device)
+
+    best_rcnn_idx = fused_obj_scores.max(dim=0)[1] # 
+    best_obj_cosim_scores = vp_obj_cosim_scores[best_rcnn_idx] # (4000,)
+    best_obj_query_z_map = obj_query_z_map[best_rcnn_idx][None, ...] # 
+    topK_cosim_idxes = best_obj_cosim_scores.topk(k=cfg.VP_NUM_TOPK)[1]
+
+    estimated_scores = best_obj_cosim_scores[topK_cosim_idxes]#.detach().cpu()
+    retrieved_codebook_R = obj_codebook_Rs[topK_cosim_idxes].clone()    # K x 3 x 3
+    top_codebook_z_maps = obj_codebook_Z_map[topK_cosim_idxes, ...]
+    
+    with torch.no_grad():
+        query_theta, pd_conf = model_net.inference(top_codebook_z_maps.to(best_obj_query_z_map.device), 
+                                                    best_obj_query_z_map.expand_as(top_codebook_z_maps))
+    stn_theta = F.pad(query_theta[:, :2, :2].clone(), (0, 1))
+    
+    homo_z_R = F.pad(stn_theta, (0, 0, 0, 1))
+    homo_z_R[:, -1, -1] = 1.0
+    estimated_xyz_R = homo_z_R @ retrieved_codebook_R.to(homo_z_R.device)
+    pd_conf = pd_conf.squeeze(1)
+    sorted_idxes = pd_conf.topk(k=len(pd_conf))[1]
+
+    final_R = estimated_xyz_R[sorted_idxes][:cfg.POSE_NUM_TOPK]
+    final_S = estimated_scores[sorted_idxes][:cfg.POSE_NUM_TOPK]
+   
+    return final_R.cpu(), final_S.cpu(), best_rcnn_idx
 

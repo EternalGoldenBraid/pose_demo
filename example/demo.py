@@ -144,13 +144,13 @@ def main(args):
 
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
-                n_points=args.n_points)
+                n_triangles=args.n_triangles)
 
     model_path = 'checkpoints'
     model_file = "OVE6D_pose_model.pth"
     model_net_ove6d = load_model_ove6d(model_path=model_path, model_file=model_file)
 
-    obj_id: int = args.obj_id
+    obj_id: int = args.obj_id.value
     obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
 
     #timeit.endlog()
@@ -158,6 +158,8 @@ def main(args):
             obj_codebook=obj_codebook, 
             model_net=model_net_ove6d,
             device=DEVICE)
+
+    dataset.object_renderer = pose_estimator.obj_renderer
 
     # Streaming loop
     mod_count: int = 0
@@ -173,7 +175,7 @@ def main(args):
 
             masks, masks_gpu, scores = segmentator(color_image)
 
-            #depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if masks.size != 0:
 
                 #print((depth_image[mask]*depth_scale).mean())
@@ -200,27 +202,24 @@ def main(args):
                 #timeit.log("Rendering.")
 
                 for transform_idx in range(R.shape[0]):
-                    color_image, done = dataset.render_cloud(obj_id=obj_id, 
-                            R=R[transform_idx].numpy().astype(np.float32), 
-                            t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                            image=color_image)
+                    #rendered_color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                    #        R=R[transform_idx].numpy().astype(np.float32), 
+                    #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #        image=color_image)
 
-                #color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                #        R=R.numpy().astype(np.float32), 
-                #        t=t.numpy().astype(np.float32),
-                #        image=color_image)
+                    rendered_color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                             R=R[transform_idx].numpy().astype(np.float32), 
+                             t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                             image=color_image.copy())
 
-                #import pdb; pdb.set_trace()
-                if args.render_mesh:
-                    pass
 
                 images = np.hstack([ 
-                    color_image, 
-                    color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    rendered_color_image, 
+                    depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
-                #timeit.endlog()
             else:
-                images = np.hstack((color_image, color_image))
+                images = np.hstack((color_image, depth_colormap))
 
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
@@ -237,18 +236,50 @@ def main(args):
 
 if __name__=="__main__":
     import argparse
+
+    from enum import Enum, unique
+    class ArgTypeMixin(Enum):
+
+        @classmethod
+        def argtype(cls, s: str) -> Enum:
+            try:
+                return cls[s]
+            except KeyError:
+                raise argparse.ArgumentTypeError(
+                    f"{s!r} is not a valid {cls.__name__}")
+
+        def __str__(self):
+            return self.name
+
+    @unique
+    class ObjectIds(ArgTypeMixin, Enum):
+        box = 1
+        head_phones = 3
+        engine_main = 4
+        dual_sphere = 5
+        tea = 6
+        bolt = 7
+        wrench = 8
+
+
     
     parser = argparse.ArgumentParser(prog='demo',
             description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('-o', '--obj_id', dest='obj_id',
-                        type=int, required=False,default=1,
-                        help='Object index: {box, basket, headphones}')
+
+    parser.add_argument('-o','--object', dest='obj_id',
+                        type=ObjectIds.argtype, default=ObjectIds.box,
+                        choices=ObjectIds,
+                        help='Object names')
+    #parser.add_argument('-o', '--object ', dest='obj_id',
+    #                    required=False,default='box',
+    #                    choices = ['box', 'head_phones', 'engine_main', 'dual_sphere','6', 'box'],
+    #                    help='Object names')
     parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
                         type=int, required=False, default=3,
                         help='Frame buffer for smoothing.')
-    parser.add_argument('-n', '--n_points', dest='n_points',
+    parser.add_argument('-n', '--n_triangles', dest='n_triangles',
                         type=int, required=False, default=2000,
-                        help='Number of points for cloud/mesh.')
+                        help='Number of triangles for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',
                         required=False, default='maskrcnn',
                         choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
@@ -266,5 +297,5 @@ if __name__=="__main__":
 
     
     args = parser.parse_args()
-    
+
     main(args)
