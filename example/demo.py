@@ -260,6 +260,7 @@ if __name__=="__main__":
         tea = 6
         bolt = 7
         wrench = 8
+        lego = 9
 
 
     
