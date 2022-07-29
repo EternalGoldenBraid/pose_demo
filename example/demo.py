@@ -150,7 +150,7 @@ def main(args):
     model_file = "OVE6D_pose_model.pth"
     model_net_ove6d = load_model_ove6d(model_path=model_path, model_file=model_file)
 
-    obj_id: int = args.obj_id
+    obj_id: int = args.obj_id.value
     obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
 
     #timeit.endlog()
@@ -235,12 +235,43 @@ def main(args):
 
 if __name__=="__main__":
     import argparse
+
+    from enum import Enum, unique
+    class ArgTypeMixin(Enum):
+
+        @classmethod
+        def argtype(cls, s: str) -> Enum:
+            try:
+                return cls[s]
+            except KeyError:
+                raise argparse.ArgumentTypeError(
+                    f"{s!r} is not a valid {cls.__name__}")
+
+        def __str__(self):
+            return self.name
+
+    @unique
+    class ObjectIds(ArgTypeMixin, Enum):
+        box = 1
+        head_phones = 3
+        engine_main = 4
+        dual_sphere = 5
+        foo = 6
+        bolt = 7
+
+
     
     parser = argparse.ArgumentParser(prog='demo',
             description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('-o', '--obj_id', dest='obj_id',
-                        type=int, required=False,default=1,
-                        help='Object index: {box, basket, headphones}')
+
+    parser.add_argument('-o','--object', dest='obj_id',
+                        type=ObjectIds.argtype, default=ObjectIds.box,
+                        choices=ObjectIds,
+                        help='Object names')
+    #parser.add_argument('-o', '--object ', dest='obj_id',
+    #                    required=False,default='box',
+    #                    choices = ['box', 'head_phones', 'engine_main', 'dual_sphere','6', 'box'],
+    #                    help='Object names')
     parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
                         type=int, required=False, default=3,
                         help='Frame buffer for smoothing.')
@@ -264,5 +295,5 @@ if __name__=="__main__":
 
     
     args = parser.parse_args()
-    
+
     main(args)
