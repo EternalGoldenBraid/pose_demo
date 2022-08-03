@@ -20,17 +20,17 @@ ZOOM_DIST_FACTOR = 0.01  # the distance factor of zooming (relative to object di
 DATASET_NAME = ''
 SAVE_FTMAP = True        # store the latent feature maps of viewpoint (for rotation regression)
 
-HEMI_ONLY = True
+HEMI_ONLY = False
 USE_ICP = False
-ICP_neighbors = 10         
-ICP_min_planarity = 0.2     
+ICP_neighbors = 10
+ICP_min_planarity = 0.2
 ICP_max_iterations = 20     # max iterations for ICP
-ICP_correspondences = 1000  # the number of points selected for iteration
+ICP_correspondences = 200  # the number of points selected for iteration
 
 VP_NUM_TOPK = 50   # the number of viewpoint retrievals TODO: Is this uniform sampling?
 #VP_NUM_TOPK = 5   # the number of viewpoint retrievals TODO: Is this uniform sampling?
 POSE_NUM_TOPK = 10  # the number of pose hypotheses TODO: And top
-#POSE_NUM_TOPK = 1  # the number of pose hypotheses TODO: And top
+#POSE_NUM_TOPK = 5  # the number of pose hypotheses TODO: And top
 
 
 DATA_PATH = 'Dataspace'

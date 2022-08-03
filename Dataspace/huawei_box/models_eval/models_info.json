@@ -6,5 +6,7 @@
   "6": {"diameter": 0.19, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "tea"},
   "7": {"diameter": 0.145, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "bolt"},
   "8": {"diameter": 0.16, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "wrench"},
-  "9": {"diameter": 0.13, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "lego"}
+  "9": {"diameter": 0.13, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "lego"},
+  "10": {"diameter": 0.12, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "eraser_lowq"},
+  "10": {"diameter": 0.12, "min_x": -37.9343, "min_y": -38.7996, "min_z": -45.8845, "size_x": 75.8686, "size_y": 77.5992, "size_z": 91.769, "name": "eraser_highq"}
 }

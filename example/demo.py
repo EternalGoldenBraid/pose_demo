@@ -178,8 +178,6 @@ def main(args):
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if masks.size != 0:
 
-                #print((depth_image[mask]*depth_scale).mean())
-                #import pdb; pdb.set_trace()
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
                 R, t = pose_estimator.estimate_pose(obj_mask=masks_gpu[0][None,...],
                             obj_depth=torch.tensor(
@@ -191,30 +189,23 @@ def main(args):
                 #R, t = pose_estimator.estimate_poses(obj_masks=masks_gpu, scores=scores,
                 #            obj_depths=obj_depths.squeeze())
 
-                #if count % args.buffer_size == 0:
-                #    R = R/args.buffer_size; t = t/args.buffer_size
-                #    count = 0
-                #else:
-                #    R = R+R_old; t = t+t_old
-                #    continue
-
                 #timeit.endlog()
                 #timeit.log("Rendering.")
 
                 for transform_idx in range(R.shape[0]):
-                    #rendered_color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                    #color_image, done = dataset.render_cloud(obj_id=obj_id, 
                     #        R=R[transform_idx].numpy().astype(np.float32), 
                     #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
                     #        image=color_image)
 
-                    rendered_color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                    color_image, done = dataset.render_mesh(obj_id=obj_id, 
                              R=R[transform_idx].numpy().astype(np.float32), 
                              t=t[transform_idx].numpy()[...,None].astype(np.float32),
                              image=color_image.copy())
 
 
                 images = np.hstack([ 
-                    rendered_color_image, 
+                    color_image, 
                     depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
@@ -261,6 +252,9 @@ if __name__=="__main__":
         bolt = 7
         wrench = 8
         lego = 9
+        eraser_lowq = 10
+        eraser_highq = 11
+        #eraser_lowq = 10
 
 
     
