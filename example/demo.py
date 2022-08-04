@@ -25,109 +25,26 @@ base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
 from utility import timeit, load_segmentation_model, cam_control
-from lib import (rendering, network, triangulate)
+from utility.load_pose_estimator import PoseEstimator
 
-from lib.render_cloud import load_cloud, render_cloud
+from lib.render_cloud import load_cloud, render_cloud # TODO Use this
+from lib import ove6d
 
-from dataset import LineMOD_Dataset, demo_dataset
-from evaluation import utils
-from evaluation import config as cfg
+from dataset import demo_dataset
+from configs import config as cfg
 
 #DEVICE = torch.device('cuda')
 #DEVICE = torch.device('cpu')
 #DEVICE = 'cpu'
 DEVICE = 'cuda'
 
-class PoseEstimator:
-    def __init__(self, cfg, cam_K, obj_codebook, model_net, device='cpu'):
-        self.obj_renderer = rendering.Renderer(width=cfg.RENDER_WIDTH, height=cfg.RENDER_HEIGHT)
-        self.cam_K = cam_K
-        self.obj_codebook = obj_codebook
-        self.device = device
-        self.model_net = model_net
-        self.cfg = cfg
-
-    def estimate_pose(self, obj_depth, obj_mask):
-        """
-        B*height*width
-        """
-
-        #tar_obj_depth = (view_depth * obj_mask).squeeze()
-        pose_ret = utils.OVE6D_mask_full_pose(
-            model_func=self.model_net, 
-            #obj_depth=tar_obj_depth[None,:,:],
-            obj_depth=obj_depth, # 1*h*w
-            obj_mask=obj_mask, # 1*h*w
-            obj_codebook=self.obj_codebook,
-            cam_K=self.cam_K,
-            config=self.cfg,
-            obj_renderer=self.obj_renderer,
-            device=DEVICE)
-
-        return pose_ret['raw_R'][None,...], pose_ret['raw_t'][None,...]
-
-    def estimate_poses(self, obj_depths, obj_masks, scores):
-
-        #tar_obj_depth = (view_depth * obj_mask).squeeze()
-        pose_ret = utils.OVE6D_rcnn_full_pose(
-            model_func=self.model_net, 
-            #obj_depth=tar_obj_depth[None,:,:],
-            obj_depths=obj_depths, # N*h*w
-            obj_masks=obj_masks, # N*h*w
-            obj_rcnn_scores=scores,
-            obj_codebook=self.obj_codebook,
-            cam_K=self.cam_K,
-            config=self.cfg,
-            obj_renderer=self.obj_renderer,
-            device=DEVICE,
-            return_rcnn_idx=False # TODO role?
-            )
-
-        # TODO Add multiobject support.
-        return pose_ret['raw_R'][None,...], pose_ret['raw_t'][None,...]
-
-    def __del__(self):
-        del self.obj_renderer
-
-def load_codebooks(model_net, eval_dataset):
-    codebook_saving_dir = pjoin(base_path,'evaluation/object_codebooks',
-                                cfg.DATASET_NAME, 
-                                'zoom_{}'.format(cfg.ZOOM_DIST_FACTOR), 
-                                'views_{}'.format(str(cfg.RENDER_NUM_VIEWS)))
-    
-    
-    
-    object_codebooks = utils.OVE6D_codebook_generation(codebook_dir=codebook_saving_dir, 
-                                                        model_func=model_net,
-                                                        dataset=eval_dataset, 
-                                                        config=cfg, 
-                                                        device=DEVICE)
-    print('Object codebooks have been loaded!')
-    print(object_codebooks.keys())
-
-    return object_codebooks
-
-def load_model_ove6d(model_path, model_file=None):
-
-    assert type(model_file) == str
-
-    ### MODEL
-    #ckpt_file = pjoin(base_path, 'checkpoints', "OVE6D_pose_model.pth")
-    ckpt_file = pjoin(base_path, model_path, model_file)
-
-    model_net = network.OVE6D().to(DEVICE)
-    model_net.load_state_dict(torch.load(ckpt_file, map_location=DEVICE))
-    model_net.eval()
-    print('OVE6D has been loaded!')
-    return model_net
 
 def main(args):
 
-    #cfg.RENDER_WIDTH = eval_dataset.cam_width    # the width of rendered images
-    #cfg.RENDER_HEIGHT = eval_dataset.cam_height  # the height of rendered images
     cfg.DATASET_NAME = 'huawei_box'        # dataset name
     cfg.USE_ICP = args.icp
 
+    # Load camera module
    #timeit.log("Realsense initialization.")
    # TODO change to row_major for numpy...? What's torch
     cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=60)
@@ -135,30 +52,31 @@ def main(args):
     cam_K_np = cam_K.numpy()
    #timeit.endlog()
 
-    ### Segmentation
+    # load segmentation module
     segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
+    # Load mesh models
    #timeit.log("Loading data.")
     #dataroot = Path(os.path.dirname(__file__)).parent/Path(cfg.DATA_PATH)
     dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
-
     dataset = demo_dataset.Dataset(data_dir=dataroot/ 'huawei_box', cfg=cfg,
                 cam_K=cam_K, cam_height=cfg.RENDER_HEIGHT, cam_width=cfg.RENDER_WIDTH,
                 n_triangles=args.n_triangles)
 
-    model_path = 'checkpoints'
-    model_file = "OVE6D_pose_model.pth"
-    model_net_ove6d = load_model_ove6d(model_path=model_path, model_file=model_file)
-
+    # Load pose estimation module
     obj_id: int = args.obj_id.value
-    obj_codebook = load_codebooks(model_net=model_net_ove6d, eval_dataset=dataset)[obj_id]
+    codebook_path = pjoin(base_path,'Dataspace/object_codebooks',
+        cfg.DATASET_NAME,
+        'zoom_{}'.format(cfg.ZOOM_DIST_FACTOR),
+        'views_{}'.format(str(cfg.RENDER_NUM_VIEWS)))
 
     #timeit.endlog()
-    pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, 
-            obj_codebook=obj_codebook, 
-            model_net=model_net_ove6d,
-            device=DEVICE)
+    pose_estimator = PoseEstimator(cfg=cfg, cam_K=dataset.cam_K, obj_id=obj_id,
+            model_path=Path('checkpoints','OVE6D_pose_model.pth'),
+            device=DEVICE, dataset=dataset, codebook_path=codebook_path)
 
+    # TODO
+    # Passing initialized renderer? Implications?
     dataset.object_renderer = pose_estimator.obj_renderer
 
     # Streaming loop
