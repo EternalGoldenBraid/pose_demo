@@ -88,7 +88,7 @@ class Dataset():
         image[P[1], P[0], :] = 255
         return image, True
 
-    def render_mesh(self, obj_id, R, t, image):
+    def render_mesh(self, obj_id, R, t, image, color=(0,0,255), alpha=0.5):
         ### FLIP Y, and Z coords
         R = R.dot(np.array([
                         [1, 0, 0],
@@ -101,7 +101,14 @@ class Dataset():
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
             return image, False
         P = P.astype(np.int32)
-        image = cv2.fillPoly(image, pts=np.array(P.T[self.faces[obj_id][:,:2]][:,:,:2]), color=(255, 0, 0))
+
+        # Does not fill the triangels since all are passed as a single batch.
+        # Iterating over earch triangle and rendering one by one results in fill.
+        image_filled = cv2.fillPoly(image.copy(), pts=np.array(P.T[self.faces[obj_id]][:,:,:2]), color=color)
+        image = cv2.addWeighted(image, alpha, image_filled, 1-alpha, 0.0)
+
+        #image = cv2.drawContours(image=image, contourIdx=-1, color=color, thickness=-1, 
+                #contours=np.array(P.T[self.faces[obj_id]][:,:,:2]))
 
         return image, True
 

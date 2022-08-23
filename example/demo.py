@@ -173,6 +173,8 @@ if __name__=="__main__":
         eraser_lowq = 10
         eraser_highq = 11
         #eraser_lowq = 10
+        box_synth = 12
+        gear_assembled = 13
 
 
     
