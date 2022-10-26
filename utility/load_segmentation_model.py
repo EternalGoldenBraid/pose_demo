@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 import torch
 import numpy as np
+from numpy.typing import NDArray
 
 from ipdb import iex
 #from detectron2 import model_zoo
@@ -15,7 +16,8 @@ from os.path import join as pjoin
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-from lib import detectron_segmentation, contour_segmentation
+#from lib import detectron_segmentation, contour_segmentation, chromakey
+from lib import detectron_segmentation, contour_segmentation, chromakey
 
 def load(model, cfg, device):
     """
@@ -28,6 +30,8 @@ def load(model, cfg, device):
     mask: numpy.array
     scores: confidence scores. None if not provided.
     """
+    img_size=(cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH)
+
     if model == 'bgs_hsv':
         def segmentator_(image): 
             #im_hsv = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
@@ -49,8 +53,41 @@ def load(model, cfg, device):
             mask = circle*mask
 
             return mask.astype(np.uint8), torch.tensor(mask, device=device), None
-
         segmentator = segmentator_
+    elif model == 'chromakey':
+        segmentator_setter = chromakey.Segmentator(
+	            img_size=img_size
+	            )
+	
+	    #if object_name == 'test_gear':
+	    #    tola = 1.0; tolb = 1.53
+	    #elif object_name == 'test_clipper':
+	    #    tola = 0.66; tolb = 1.05
+	    #else:
+	    #    raise ValueError("What scene?")
+        tola = 496/10
+        tolb = 601/10
+        pre_kwargs = {
+	            'init_tola' : tola,
+	            'init_tolb' : tolb,
+	            'init_Cb_key' : 96.,
+	            'init_Cr_key' : 63.
+	            }
+	
+	    ### Load reference frames for segmentator
+        filter_ = segmentator_setter.get_filter(colorspace='YCrCb', **pre_kwargs)
+        	
+        mask_gpu = torch.zeros((1, img_size[0], img_size[1]), device=device, dtype=bool)
+        mask: NDArray[np.bool_] = np.zeros((1, img_size[0], img_size[1]), dtype=np.bool_)
+        	
+        def segmentator_(image) -> tuple[NDArray[np.bool_], Any, None]:
+        	
+            mask[:] = filter_(image=image)
+            mask_gpu[:] = torch.from_numpy(mask)
+        return mask, mask_gpu, None
+    
+        segmentator = segmentator_
+
     elif model == 'bgsKNN':
         def segmentator_(image):
             mask = cv2.createBackgroundSubtractorKNN().apply(image)

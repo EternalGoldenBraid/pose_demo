@@ -25,7 +25,7 @@ class Dataset():
         self.cam_height = cam_height
         self.cam_width = cam_width
         self.model_info = None
-        self.obj_model_file = dict()
+        self.obj_model_file: dict = dict()
         self.obj_diameter = dict()
         self.point_cloud = dict()
         self.faces = dict()

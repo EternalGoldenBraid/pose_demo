@@ -21,10 +21,14 @@ from os.path import join as pjoin
 from bop_toolkit_lib import inout
 warnings.filterwarnings("ignore")
 
+breakpoint()
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-from utility import timeit, load_segmentation_model, cam_control
+breakpoint()
+from utility import (timeit,  cam_control,
+                     #load_segmentation_model,
+                     load_segmentation_model_chroma)
 from utility.load_pose_estimator import PoseEstimator
 
 from lib.render_cloud import load_cloud, render_cloud # TODO Use this
@@ -53,7 +57,11 @@ def main(args):
    #timeit.endlog()
 
     # load segmentation module
-    segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
+    if args.segment_method == 'chromakey':
+        segmentator = load_segmentation_model_chroma.load(cfg=cfg, device=DEVICE)
+    else:
+        raise NotImplementedError("Enable segmentator selection (detectron)")
+        #segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
     # Load mesh models
    #timeit.log("Loading data.")
@@ -92,6 +100,9 @@ def main(args):
             depth_image, color_image = cam.get_image()
 
             masks, masks_gpu, scores = segmentator(color_image)
+
+            #breakpoint()
+            cv2.imshow('mask', masks[0].astype(float))
 
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
             if masks.size != 0:
@@ -197,7 +208,7 @@ if __name__=="__main__":
                         help='Number of triangles for cloud/mesh.')
     parser.add_argument('-s', '--segmentation', dest='segment_method',
                         required=False, default='maskrcnn',
-                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
+                        choices = ['chromakey','bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn', 'point_rend'],
                         help="""Method of segmentation.
                         contour: OpenCV based edge detection ...,
                         TODO:
