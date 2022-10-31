@@ -12,22 +12,36 @@ from ipdb import iex
 
 from os.path import join as pjoin
 
-base_path = os.path.dirname(os.path.abspath("."))
-sys.path.append(base_path)
+#base_path = os.path.dirname(os.path.abspath("."))
+#sys.path.append(base_path)
 
 from lib import chromakey
+#from ove6d.lib import chromakey
 
-def load(cfg, device, **kwargs):
+def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
     """
-    TODO: ADD TYPES
-    Segmentator needs to return:
-        TODO
+    Helper function that loads a chromakey segmentation.
+    
+    Parameters
+    ----------
+    
+    :param string device: cuda or cpu.
+    :param cfg: a .py file defining various configuration parameters as variables.
 
-    ## Returns
-    mask_gpu: torch.tensor on gpu
-    mask: numpy.array
-    scores: confidence scores. None if not provided.
+    Returns
+    -------
+    
+    :return torch.tensor mask_gpu: torch.tensor on gpu of shape [N_objects, img_height, img_width]
+    :return numpy.array mask: np.array on cpu [N_objects, img_height, img_width]
+    :return scores: Confidence scores if provided my segmentation model.
+    
+    Notes
+    -----
+    
+    Place the segmentation model that defines that implements the described return types to ./lib
+    from which it will be imported.
     """
+
     img_size=(cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH)
 
     segmentator_setter = chromakey.Segmentator(
@@ -40,7 +54,7 @@ def load(cfg, device, **kwargs):
 	#    tola = 0.66; tolb = 1.05
 	#else:
 	#    raise ValueError("What scene?")
-    init_tola: int = 496
+    init_tola: int = 511
     init_tolb: int = 601
     init_Cb_key: int = 96
     init_Cr_key: int = 63
@@ -87,7 +101,6 @@ def load(cfg, device, **kwargs):
             mask_gpu[:] = torch.from_numpy(mask)
             return mask, mask_gpu, None
     else:
-	    ### Load reference frames for segmentator
         filter_ = segmentator_setter.get_filter(colorspace='YCrCb', **pre_kwargs)
     	
     	
@@ -98,37 +111,3 @@ def load(cfg, device, **kwargs):
             return mask, mask_gpu, None
     
     return segmentator
-
-if __name__=="__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(prog='demo',
-            description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('-o', '--obj_id', dest='obj_id',
-                        type=int, required=False,default=1,
-                        help='Object index: {box, basket, headphones}')
-    parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
-                        type=int, required=False, default=3,
-                        help='Frame buffer for smoothing.')
-    parser.add_argument('-n', '--n_points', dest='n_points',
-                        type=int, required=False, default=2000,
-                        help='Number of points for cloud/mesh.')
-    parser.add_argument('-s', '--segmentation', dest='segment_method',
-                        required=False, default='maskrcnn',
-                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
-                        help="""Method of segmentation.
-                        contour: OpenCV based edge detection ...,
-                        TODO:
-                        """)
-    ### Python < 3.9 TODO: Set this up.
-    #parser.add_argument('--feature', action='store_true', dest='render_mesh')
-    #parser.add_argument('--no-feature', dest='render_mesh', action='store_false')
-    #parser.set_defaults(render_mesh=True)
-    ### Python >= 3.9
-    parser.add_argument('-rm', '--render-mesh', dest='render_mesh', action=argparse.BooleanOptionalAction)
-    parser.add_argument('-icp', dest='icp', action=argparse.BooleanOptionalAction)
-
-    
-    args = parser.parse_args()
-    
-    main(args)

@@ -255,7 +255,8 @@ def OVE6D_codebook_generation(model_func, codebook_dir, dataset, config, device)
         print('No codebook files found, generating codebooks.')
         #pool = Pool(os.cpu_count()-1) # TODO ADD MULTIPROCESSING.
 
-        for obj_id, obj_model_file in tqdm(obj_model_files.items(), length=len(obj_model_files.items())):
+        #for obj_id, obj_model_file in tqdm(obj_model_files.items(), length=num_objects):
+        for obj_id, obj_model_file in obj_model_files.items():
 
             print("Generating codebook for object:", obj_id, end=" .")
 

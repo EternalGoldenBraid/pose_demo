@@ -42,7 +42,6 @@ from configs import config as cfg
 #DEVICE = 'cpu'
 DEVICE = 'cuda'
 
-
 def main(args):
 
     cfg.DATASET_NAME = 'huawei_box'        # dataset name
@@ -64,7 +63,7 @@ def main(args):
         #segmentator = load_segmentation_model.load(model=args.segment_method, cfg=cfg, device=DEVICE)
 
     # Load mesh models
-   #timeit.log("Loading data.")
+    #timeit.log("Loading data.")
     dataroot: Path = Path(os.path.dirname(__file__))/Path(cfg.DATA_PATH)
     #dataroot = Path(os.path.realpath(__file__)).parent.parent/Path(cfg.DATA_PATH)
     dataset = demo_dataset.Dataset(data_dir=dataroot/ cfg.DATASET_NAME, cfg=cfg,
@@ -185,6 +184,7 @@ if __name__=="__main__":
         #eraser_lowq = 10
         box_synth = 12
         gear_assembled = 13
+        clipper = 14
 
 
     

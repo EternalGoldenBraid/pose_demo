@@ -51,8 +51,8 @@ class Dataset():
 
                 mesh = o3d.io.read_triangle_mesh(filename=str(model_file))
                 mesh = mesh.simplify_quadric_decimation(target_number_of_triangles=n_triangles)
-                self.point_cloud[obj_id] = np.asanyarray(mesh.vertices)
-                self.faces[obj_id] = np.asanyarray(mesh.triangles)
+                self.point_cloud[obj_id] = np.asanyarray(mesh.vertices).astype(float)
+                self.faces[obj_id] = np.asanyarray(mesh.triangles).astype(int)
 
         if self.cam_K == None:
             print("Warning camera intrinsics not set.")
@@ -99,12 +99,17 @@ class Dataset():
         P = P // P[-1,:]
 
         if P[1].max() >= self.cam_height or P[0].max() >= self.cam_width:
+            print("LOG: Projection out of bounds")
             return image, False
-        P = P.astype(np.int32)
 
-        # Does not fill the triangels since all are passed as a single batch.
-        # Iterating over earch triangle and rendering one by one results in fill.
-        image_filled = cv2.fillPoly(image.copy(), pts=np.array(P.T[self.faces[obj_id]][:,:,:2]), color=color)
+        P = P.astype(np.int32)
+        #Does not fill the triangels since all are passed as a single batch.
+        #Iterating over earch triangle and rendering one by one results in fill.
+        image_filled = cv2.fillPoly(image.copy(), 
+                                    #lineType=cv2.FILLED,
+                                    #lineType=-1,
+                                    pts=np.array(P.T[self.faces[obj_id]][:,:,:2]), color=color)
+
         image = cv2.addWeighted(image, alpha, image_filled, 1-alpha, 0.0)
 
         #image = cv2.drawContours(image=image, contourIdx=-1, color=color, thickness=-1, 

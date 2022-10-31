@@ -8,114 +8,69 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ipdb import iex
-#from detectron2 import model_zoo
-from detectron2.projects import point_rend
 
 from os.path import join as pjoin
 
 base_path = os.path.dirname(os.path.abspath("."))
 sys.path.append(base_path)
 
-#from lib import detectron_segmentation, contour_segmentation, chromakey
-from lib import detectron_segmentation, contour_segmentation, chromakey
-
-def load(model, cfg, device):
+def load(model: str, cfg, device: str):
     """
-    TODO: ADD TYPES
-    Segmentator needs to return:
-        TODO
+    Helper function that loads a segmentation module defined.
 
-    ## Returns
-    mask_gpu: torch.tensor on gpu
-    mask: numpy.array
-    scores: confidence scores. None if not provided.
+    Parameters
+    ----------
+
+    :param string model: name of the segmentation module to be loaded.
+    :param string device: cuda or cpu.
+    :param cfg: a .py file defining various configuration parameters as variables.
+
+
+    Returns
+    -------
+
+    :return torch.tensor mask_gpu: torch.tensor on gpu of shape [N_objects, img_height, img_width]
+    :return numpy.array mask: np.array on cpu [N_objects, img_height, img_width]
+    :return scores: Confidence scores if provided my segmentation model.
+
+
+    Notes
+    -----
+
+    Place the segmentation model that defines that implements the described return types to ./lib
+    from which it will be imported.
     """
     img_size=(cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH)
 
-    if model == 'bgs_hsv':
-        def segmentator_(image): 
-            #im_hsv = cv2.cvtColor(image, code=cv2.COLOR_BGR2HSV)
-            im_hsv = cv2.cvtColor(
-                    1./255*image.astype(np.float32), code=cv2.COLOR_BGR2HSV_FULL)
-            sub = im_hsv.copy()
-            low = 140; up = 220
-            mask = cv2.inRange(sub, np.array([low,0,0]), np.array([up,1,1]))
+    if model == 'your_segmentator_name':
+        #from lib import your_segmentator
 
-            center = (cfg.RENDER_WIDTH//2, cfg.RENDER_HEIGHT//2)
-            radius = cfg.RENDER_WIDTH // 4
-            color = 255
-            thickness = -1
-            line_type = 8
-            #circle = cv2.circle(mask, center, radius, color, thickness, line_type)
-            circle = cv2.circle(np.zeros_like(mask, dtype=np.uint8), center, radius, color, thickness, line_type)//255
-            mask = mask//255; mask=mask.astype(bool)
-            mask = ~mask
-            mask = circle*mask
-
-            return mask.astype(np.uint8), torch.tensor(mask, device=device), None
-        segmentator = segmentator_
-    elif model == 'chromakey':
-        segmentator_setter = chromakey.Segmentator(
-	            img_size=img_size
-	            )
-	
-	    #if object_name == 'test_gear':
-	    #    tola = 1.0; tolb = 1.53
-	    #elif object_name == 'test_clipper':
-	    #    tola = 0.66; tolb = 1.05
-	    #else:
-	    #    raise ValueError("What scene?")
-        tola = 496/10
-        tolb = 601/10
-        pre_kwargs = {
-	            'init_tola' : tola,
-	            'init_tolb' : tolb,
-	            'init_Cb_key' : 96.,
-	            'init_Cr_key' : 63.
-	            }
-	
-	    ### Load reference frames for segmentator
-        filter_ = segmentator_setter.get_filter(colorspace='YCrCb', **pre_kwargs)
-        	
-        mask_gpu = torch.zeros((1, img_size[0], img_size[1]), device=device, dtype=bool)
-        mask: NDArray[np.bool_] = np.zeros((1, img_size[0], img_size[1]), dtype=np.bool_)
-        	
-        def segmentator_(image) -> tuple[NDArray[np.bool_], Any, None]:
-        	
-            mask[:] = filter_(image=image)
-            mask_gpu[:] = torch.from_numpy(mask)
-        return mask, mask_gpu, None
-    
-        segmentator = segmentator_
-
-    elif model == 'bgsKNN':
         def segmentator_(image):
             mask = cv2.createBackgroundSubtractorKNN().apply(image)
             return mask, torch.tensor(mask, device=device), None
-        segmentator = segmentator_
-    elif model == 'bgsMOG2':
-        def segmentator_(image):
-            mask = cv2.createBackgroundSubtractorMOG2().apply(image)
-            return mask, torch.tensor(mask, device=device), None
-        segmentator = segmentator_
     elif model == 'contour':
+        from lib import contour_segmentation
+
         none_array = np.array(())
         model = contour_segmentation.BackgroundContour()
+
         def segmentator_(image):
             #mask = contour_segmentation.ContourSegmentator().get_mask(image)//255
             masks = model.get_mask(image)
             if len(masks) == 0:
                 return none_array, None, None
             return masks, torch.tensor(masks, device=device), None
-        segmentator = segmentator_
+
     elif model == 'maskrcnn':
+        from lib import detectron_segmentation
+        import detectron2.data.transforms as T
+        from detectron2 import model_zoo
 
         none_array = np.array(())
         model_seg, model_cfg = detectron_segmentation.load_model_image_agnostic(
                 base_path+'/checkpoints/FAT_trained_Ml2R_bin_fine_tuned.pth',
                 device=device)
 
-        import detectron2.data.transforms as T
         aug = T.ResizeShortestEdge(
             [model_cfg.INPUT.MIN_SIZE_TEST, model_cfg.INPUT.MIN_SIZE_TEST], model_cfg.INPUT.MAX_SIZE_TEST
         )
@@ -134,8 +89,12 @@ def load(model, cfg, device):
                 mask_cpu = mask_gpu.to(
                         non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
                 return mask_cpu, mask_gpu, scores
-        segmentator = segmentator_
+
     elif model == 'point_rend':
+        from detectron2.projects import point_rend
+        from lib import detectron_segmentation
+        from detectron2 import model_zoo
+
         none_array = np.array(())
         print("BASE:",base_path)
         #model_file = base_path+'/checkpoints/model_final_ba17b9_pointrend.pkl'
@@ -156,43 +115,7 @@ def load(model, cfg, device):
             mask_cpu = mask_gpu.to(
                     non_blocking=True, copy=True, device='cpu').numpy().astype(int).astype(np.uint8)
             return mask_cpu, mask_gpu, scores
-        segmentator = segmentator_
     else: 
-        print("Invalid segmentation option:", model)
-        return None
+        raise NotImplementedError(f"Segmentation mode {model}, does not exist.")
 
-    return segmentator
-
-if __name__=="__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(prog='demo',
-            description='Superimpose rotated pointcloud onto video.')
-    parser.add_argument('-o', '--obj_id', dest='obj_id',
-                        type=int, required=False,default=1,
-                        help='Object index: {box, basket, headphones}')
-    parser.add_argument('-b', '--buffer_size', dest='buffer_size',  
-                        type=int, required=False, default=3,
-                        help='Frame buffer for smoothing.')
-    parser.add_argument('-n', '--n_points', dest='n_points',
-                        type=int, required=False, default=2000,
-                        help='Number of points for cloud/mesh.')
-    parser.add_argument('-s', '--segmentation', dest='segment_method',
-                        required=False, default='maskrcnn',
-                        choices = ['bgs', 'bgs_hsv', 'bgsMOG2', 'bgsKNN', 'contour', 'maskrcnn',],
-                        help="""Method of segmentation.
-                        contour: OpenCV based edge detection ...,
-                        TODO:
-                        """)
-    ### Python < 3.9 TODO: Set this up.
-    #parser.add_argument('--feature', action='store_true', dest='render_mesh')
-    #parser.add_argument('--no-feature', dest='render_mesh', action='store_false')
-    #parser.set_defaults(render_mesh=True)
-    ### Python >= 3.9
-    parser.add_argument('-rm', '--render-mesh', dest='render_mesh', action=argparse.BooleanOptionalAction)
-    parser.add_argument('-icp', dest='icp', action=argparse.BooleanOptionalAction)
-
-    
-    args = parser.parse_args()
-    
-    main(args)
+    return segmentator_
