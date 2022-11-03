@@ -89,6 +89,7 @@ def main(args):
     mod_count: int = 0
     buffer_size: int = args.buffer_size
     frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
+    d_max = 1
 
     try:
         while True:
@@ -97,12 +98,26 @@ def main(args):
             
             depth_image, color_image = cam.get_image()
 
+            depth_image[depth_image*depth_scale > d_max] = 0
+
             masks, masks_gpu, scores = segmentator(color_image)
 
             #breakpoint()
+            #breakpoint()
             cv2.imshow('mask', masks[0].astype(float))
 
-            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET) 
+            #depth_colormap = cv2.applyColorMap(
+            #        cv2.convertScaleAbs(depth_image,
+            #                            #alpha=0.03),
+            #                            alpha=0.9, beta=0.0),
+            #        cv2.COLORMAP_JET) 
+            #depth_colormap = (255*((depth_image - d_max)/d_max)).astype(np.uint8)[..., None].repeat(repeats=3,axis=2)
+            #depth_colormap = cv2.applyColorMap(
+            #        (255*((depth_image - d_max)/d_max)).astype(np.uint8),
+            #        cv2.COLORMAP_JET) 
+            depth_colormap = cv2.applyColorMap(
+                    (255*(depth_image).astype(np.uint8)),
+                    cv2.COLORMAP_JET) 
             if masks.size != 0:
 
                 ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
@@ -185,6 +200,7 @@ if __name__=="__main__":
         box_synth = 12
         gear_assembled = 13
         clipper = 14
+        pot = 15
 
 
     

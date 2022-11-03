@@ -88,6 +88,16 @@ def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
 
         filter_ = segmentator_setter.get_filter(colorspace='YCrCb')
 
+        # Margins in pixels
+        w_margin = 10
+        h_margin = 5
+        margin_mask = np.zeros(img_size, dtype=np.uint8)
+        margin_mask[:h_margin, :] = 1
+        margin_mask[-h_margin:, :] = 1
+        margin_mask[:, :w_margin] = 1
+        margin_mask[:, -w_margin:] = 1
+
+
         def segmentator(image) -> tuple[NDArray[np.bool_], Any, None]:
 
             tola = cv2.getTrackbarPos('tola',window_name)/10
@@ -98,6 +108,45 @@ def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
             kwargs: dict[str, Any] = {"tola": tola, "tolb": tolb, "Cr_key": Cr_key, "Cb_key": Cb_key}
         	
             mask[:] = filter_(image=image, **kwargs)
+
+            ### Get connected object component
+            output = cv2.connectedComponentsWithStats(image=mask[0].astype(np.uint8), ltype=cv2.CV_32S)
+            (numLabels, labels, stats, centroids) = output
+            top_rows = labels[:h_margin, :]
+            bot_rows = labels[-h_margin:, :]
+            
+            top_cols = labels[:, :w_margin]
+            bot_cols = labels[:, -w_margin:]
+            
+            boundary_labels = np.unique([
+                *top_rows.flatten(), *bot_rows.flatten(),
+                *top_cols.flatten(), *bot_cols.flatten()])
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('p'):
+                breakpoint()
+            
+            for boundary_label in boundary_labels:
+                stats[boundary_label, cv2.CC_STAT_AREA] = 0
+            
+            object_label = np.argmax(stats[:, cv2.CC_STAT_AREA])
+            
+            #cc_mask = mask[0].copy()
+            cc_mask = np.zeros_like(mask[0], dtype=np.uint8)
+            cc_mask[labels == object_label] = 1
+            cc_mask[cc_mask != 0] = 1
+            
+            numLabels_after, labels_after = cv2.connectedComponents(image=cc_mask.astype(np.uint8), ltype=cv2.CV_32S)
+            print("num labels:", numLabels_after)
+            print("labels:", np.unique(labels_after))
+            print()
+            cv2.imshow('cc_mask', cv2.addWeighted(cc_mask*255, 0.5, margin_mask*124, 0.5, 0))
+            #cv2.imshow(f'cc_mask num cc: {len(labels_after)}', cc_mask*255)
+            #cv2.imshow('margin', margin_mask)
+            ### Fill holes in object mask.
+
+            #mask_gpu[:] = torch.from_numpy(cc_mask)
+            mask[:] = cc_mask.astype(bool)[None,...]
             mask_gpu[:] = torch.from_numpy(mask)
             return mask, mask_gpu, None
     else:
