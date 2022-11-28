@@ -52,7 +52,8 @@ def main(args):
     # Load camera module
    #timeit.log("Realsense initialization.")
    # TODO change to row_major for numpy...? What's torch
-    cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=60)
+    framerate = 60
+    cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=framerate)
     depth_scale, cam_K =  cam.depth_scale, cam.cam_K
     cam_K_np = cam_K.numpy()
    #timeit.endlog()
@@ -89,9 +90,15 @@ def main(args):
 
     # Streaming loop
     mod_count: int = 0
-    buffer_size: int = args.buffer_size
-    frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, cfg.RENDER_WIDTH])
+    
+    duration = 7 # seconds
+    #buffer_size: int = args.buffer_size
+    buffer_size: int = duration * framerate
+    frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, 2*cfg.RENDER_WIDTH, 3])
     d_max = 1
+    recording = False
+    frame_idx = 0
+    is_full = False
 
     try:
         while True:
@@ -151,12 +158,20 @@ def main(args):
 
                 images = np.hstack([ 
                     color_image, 
-                    depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                    cv2.addWeighted(depth_colormap, 0.6, depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8))[...,None], 0.4, 0) 
                     #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
             else:
                 images = np.hstack((color_image, depth_colormap))
 
+            if recording and not is_full:
+                frame_buffer[frame_idx] = color_image
+                frame_idx += 1
+            elif is_full:
+                #path = '/tmp/video.mp4'
+                path = 'video.mp4'
+                print(f"Buffer full. Writing video to {path}")
+                media.write_video(path, frame_buffer, fps=framerate)
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
@@ -166,6 +181,9 @@ def main(args):
             if key & 0xFF == ord('q') or key == 27:
                 cv2.destroyAllWindows()
                 break
+            elif key & 0xFF == ord('s'):
+                print("Recording")
+                recording = True
 
     finally:
         del cam

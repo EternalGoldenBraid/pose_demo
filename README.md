@@ -1,5 +1,5 @@
 ## Setup
-Please start by installing [Miniconda3](https://conda.io/projects/conda/en/latest/user-guide/install/linux.html) 
+Please start by installing [mamba](https://github.com/conda-forge/miniforge#mambaforge), [Miniconda3](https://conda.io/projects/conda/en/latest/user-guide/install/linux.html) or conda
 with Python3.9 or above.
 
 ### Conda/Mamba
