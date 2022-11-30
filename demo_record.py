@@ -14,6 +14,8 @@ from PIL import Image, ImageDraw
 import pyrealsense2 as rs
 from scipy import stats
 
+import h5py
+
 from ipdb import iex
 from matplotlib import pyplot as plt
 
@@ -44,19 +46,32 @@ from configs import config as cfg
 #DEVICE = 'cpu'
 DEVICE = 'cuda'
 
-def main(args):
+def run(args):
 
     cfg.DATASET_NAME = 'huawei_box'        # dataset name
     cfg.USE_ICP = args.icp
 
-    # Load camera module
-   #timeit.log("Realsense initialization.")
-   # TODO change to row_major for numpy...? What's torch
-    framerate = 60
-    cam = cam_control.Camera(size=(cfg.RENDER_WIDTH, cfg.RENDER_HEIGHT), framerate=framerate)
-    depth_scale, cam_K =  cam.depth_scale, cam.cam_K
-    cam_K_np = cam_K.numpy()
-   #timeit.endlog()
+    # Load data
+    grp = args.group
+    file_in = f"{args.file_in}.hdf5"
+    f = h5py.File(f"data/recordings/{file_in}", "r")
+    if args.obj_name not in f[grp]:
+        print("Object name not found in recordings:", f[grp].keys())
+        return -1
+    depth_scale = f['meta']["depth_scale"][:]
+    cam_K = torch.tensor(f['meta']["camera_intrinsic"][:])
+    fps = f['meta']["framerate"][0]
+    
+    # Load recordings
+    #for args.obj_name in f[grp][args.obj_name]:
+    obj_path = Path(f.name, grp, args.obj_name)
+    color_frames = f[str(obj_path/'color_frames')][:]
+    depth_frames = f[str(obj_path/'depth_frames')][:]
+    f.close()
+
+    print("Loaded recordings:")
+    print(f"Number of frames: {color_frames.shape[0]}")
+    print(f"Recording framerate {fps}")
 
     # load segmentation module
     if args.segment_method == 'chromakey':
@@ -88,24 +103,30 @@ def main(args):
     # Passing initialized renderer? Implications?
     #dataset.object_renderer = pose_estimator.obj_renderer
 
+    # Initialize write/output parameters
+    rendered_frames = np.empty_like(color_frames, dtype=np.uint8)
+    n_frames = color_frames.shape[0]
+    duration = int(n_frames/fps)
+    poses = np.eye(4, 4)[None,...].repeat(repeats=n_frames, axis=0) # In homo form. : ndarray[Any, dtype[float64]]
+    
+    
     # Streaming loop
     mod_count: int = 0
+    #wait_time = int(1000/fps)
+    wait_time = int(1)
     
-    duration = 7 # seconds
-    #buffer_size: int = args.buffer_size
-    buffer_size: int = duration * framerate
-    frame_buffer = np.empty([buffer_size, cfg.RENDER_HEIGHT, 2*cfg.RENDER_WIDTH, 3])
-    d_max = 1
-    recording = False
-    frame_idx = 0
-    is_full = False
+    d_max = 1 # max depth in meters
+    count = -1
 
     try:
         while True:
+            # Careful with overflow
+            count += 1
 
             fps_start = perf_counter()
             
-            depth_image, color_image = cam.get_image()
+            depth_image = depth_frames[count % n_frames]
+            color_image = color_frames[count % n_frames].astype(np.uint8)
 
             depth_image[depth_image*depth_scale > d_max] = 0
             depth_image[depth_image*depth_scale <= 0] = 0
@@ -126,7 +147,8 @@ def main(args):
             #        (255*((depth_image - d_max)/d_max)).astype(np.uint8),
             #        cv2.COLORMAP_JET) 
             depth_colormap = cv2.applyColorMap(
-                    (255*depth_image/depth_image.max() ).astype(np.uint8),
+                    #(255*depth_image/depth_image.max() ).astype(np.uint8),
+                    (255*depth_image/(d_max/depth_scale) ).astype(np.uint8),
                     cv2.COLORMAP_JET) 
             if masks.size != 0:
 
@@ -156,22 +178,21 @@ def main(args):
                              image=color_image.copy())
 
 
+                ### For demo visualization only
+                masked_depth = depth_colormap.copy()
+                masked_depth[masks[0].astype(bool)] = [10, 57, 255]
+                colors_masked = color_image.copy()
+                colors_masked[masks[0].astype(bool)] = [10, 57, 255]
+
                 images = np.hstack([ 
-                    color_image, 
-                    cv2.addWeighted(depth_colormap, 0.6, depth_colormap*np.array(masks.sum(axis=0, dtype=np.uint8))[...,None], 0.4, 0) 
+                    #color_image, 
+                    cv2.addWeighted(depth_colormap, 0.7, masked_depth, 0.3, 0) ,
+                    cv2.addWeighted(color_image, 0.7, colors_masked, 0.3, 0)
                     #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
                     ])
             else:
                 images = np.hstack((color_image, depth_colormap))
 
-            if recording and not is_full:
-                frame_buffer[frame_idx] = color_image
-                frame_idx += 1
-            elif is_full:
-                #path = '/tmp/video.mp4'
-                path = 'video.mp4'
-                print(f"Buffer full. Writing video to {path}")
-                media.write_video(path, frame_buffer, fps=framerate)
             
             cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
             cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
@@ -185,8 +206,18 @@ def main(args):
                 print("Recording")
                 recording = True
 
+            rendered_frames[count % n_frames] = color_image
+
     finally:
-        del cam
+        
+        if args.to_save:
+            #path = '/tmp/video.mp4'
+            path = f'data/results/{args.obj_name}.mp4'
+            print(f". Writing video to {path}")
+            print(f"Duration: {duration}")
+            #foo = cv2.cvtColor(rendered_frames, cv2.COLOR_BGR2RGB)
+            #breakpoint()
+            media.write_video(path, rendered_frames[...,::-1], fps=fps)
 
 if __name__=="__main__":
     import argparse
@@ -260,4 +291,4 @@ if __name__=="__main__":
     
     args = parser.parse_args()
 
-    main(args)
+    run(args)

@@ -112,6 +112,8 @@ def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
             ### Get connected object component
             output = cv2.connectedComponentsWithStats(image=mask[0].astype(np.uint8), ltype=cv2.CV_32S)
             (numLabels, labels, stats, centroids) = output
+
+            # Define a small margin around the borders of the background.
             top_rows = labels[:h_margin, :]
             bot_rows = labels[-h_margin:, :]
             
@@ -122,13 +124,14 @@ def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
                 *top_rows.flatten(), *bot_rows.flatten(),
                 *top_cols.flatten(), *bot_cols.flatten()])
             
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('p'):
-                breakpoint()
             
+            # Set area in margin to be background.
+            # This takes care of the green canvas as its the largest connected component.
+            # This takes care of a small table green screen, where borders might not be green.
             for boundary_label in boundary_labels:
                 stats[boundary_label, cv2.CC_STAT_AREA] = 0
             
+            # Now the object is tha lcc.
             object_label = np.argmax(stats[:, cv2.CC_STAT_AREA])
             
             #cc_mask = mask[0].copy()
@@ -136,14 +139,28 @@ def load(cfg, device, **kwargs)-> tuple[NDArray, torch.tensor, None]:
             cc_mask[labels == object_label] = 1
             cc_mask[cc_mask != 0] = 1
             
-            numLabels_after, labels_after = cv2.connectedComponents(image=cc_mask.astype(np.uint8), ltype=cv2.CV_32S)
-            print("num labels:", numLabels_after)
-            print("labels:", np.unique(labels_after))
-            print()
-            cv2.imshow('cc_mask', cv2.addWeighted(cc_mask*255, 0.5, margin_mask*124, 0.5, 0))
-            #cv2.imshow(f'cc_mask num cc: {len(labels_after)}', cc_mask*255)
-            #cv2.imshow('margin', margin_mask)
-            ### Fill holes in object mask.
+            ### START DEBUGGING ONLY
+
+            #numLabels_after, labels_after = cv2.connectedComponents(image=cc_mask.astype(np.uint8), ltype=cv2.CV_32S)
+            #print("num labels:", numLabels_after)
+            #print("labels:", np.unique(labels_after))
+            #print()
+            #breakpoint()
+            colors_masked = image.copy()
+            colors_masked[cc_mask.astype(bool)] = [10, 76, 255]
+
+            images = np.hstack((
+                (255*mask[0]).astype(np.uint8)[...,None].repeat(repeats=3, axis=2),
+                (255*cc_mask).astype(np.uint8)[...,None].repeat(repeats=3, axis=2),
+                #cv2.addWeighted(image, 0.7, colors_masked, 0.3, 0)
+                                ))
+
+            cv2.imshow('cc_mask', images)
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('p'):
+                breakpoint()
+
+            ### END DEBUGGING ONLY
 
             #mask_gpu[:] = torch.from_numpy(cc_mask)
             mask[:] = cc_mask.astype(bool)[None,...]

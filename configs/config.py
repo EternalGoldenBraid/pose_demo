@@ -31,8 +31,9 @@ ICP_correspondences = 10  # the number of points selected from fixed cloud for i
 
 VP_NUM_TOPK = 50   # the number of viewpoint retrievals TODO: Is this uniform sampling?
 #VP_NUM_TOPK = 5   # the number of viewpoint retrievals TODO: Is this uniform sampling?
-#POSE_NUM_TOPK = 10  # the number of pose hypotheses TODO: And top
-POSE_NUM_TOPK = 2  # the number of pose hypotheses TODO: And top
+#POSE_NUM_TOPK = 5  # the number of pose hypotheses TODO: And top
+POSE_NUM_TOPK = 1  # the number of pose hypotheses TODO: And top
+
 
 
 DATA_PATH = 'Dataspace'
