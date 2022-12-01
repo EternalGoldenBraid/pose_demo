@@ -14,6 +14,8 @@ from PIL import Image, ImageDraw
 import pyrealsense2 as rs
 from scipy import stats
 
+import open3d as o3d
+
 from ipdb import iex
 from matplotlib import pyplot as plt
 
@@ -41,8 +43,8 @@ from configs import config as cfg
 
 #DEVICE = torch.device('cuda')
 #DEVICE = torch.device('cpu')
-#DEVICE = 'cpu'
-DEVICE = 'cuda'
+DEVICE = 'cpu'
+#DEVICE = 'cuda'
 
 def main(args):
 
@@ -85,7 +87,7 @@ def main(args):
 
     # TODO Renderer usable for renering mesh 
     # Passing initialized renderer? Implications?
-    #dataset.object_renderer = pose_estimator.obj_renderer
+    dataset.object_renderer = pose_estimator.obj_renderer
 
     # Streaming loop
     mod_count: int = 0
@@ -147,6 +149,14 @@ def main(args):
                              R=R[transform_idx].numpy().astype(np.float32), 
                              t=t[transform_idx].numpy()[...,None].astype(np.float32),
                              image=color_image.copy())
+                    #color_image, done = dataset.render_mesh_slow(obj_id=obj_id, 
+                    #         R=R[transform_idx].numpy().astype(np.float32), 
+                    #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #         image=color_image.copy())
+                    #color_image, done = dataset.render_depth(obj_id=obj_id, 
+                    #         R=R[transform_idx].numpy().astype(np.float32), 
+                    #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                    #         image=color_image.copy())
 
 
                 images = np.hstack([ 
@@ -204,6 +214,7 @@ if __name__=="__main__":
         gear_assembled = 13
         clipper = 14
         pot = 15
+        phone_stand = 16
 
 
     

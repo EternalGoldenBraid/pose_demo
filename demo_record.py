@@ -43,8 +43,8 @@ from configs import config as cfg
 
 #DEVICE = torch.device('cuda')
 #DEVICE = torch.device('cpu')
-#DEVICE = 'cpu'
-DEVICE = 'cuda'
+DEVICE = 'cpu'
+#DEVICE = 'cuda'
 
 def run(args):
 
@@ -117,99 +117,113 @@ def run(args):
     
     d_max = 1 # max depth in meters
     count = -1
+    saving = False
 
     try:
-        while True:
-            # Careful with overflow
-            count += 1
+        while not saving:
 
-            fps_start = perf_counter()
-            
-            depth_image = depth_frames[count % n_frames]
-            color_image = color_frames[count % n_frames].astype(np.uint8)
+            for frame in range(n_frames):
+                # Careful with overflow
+                count += 1
 
-            depth_image[depth_image*depth_scale > d_max] = 0
-            depth_image[depth_image*depth_scale <= 0] = 0
+                fps_start = perf_counter()
+                
+                depth_image = depth_frames[count % n_frames]
+                color_image = color_frames[count % n_frames].astype(np.uint8)
 
-            masks, masks_gpu, scores = segmentator(color_image)
+                depth_image[depth_image*depth_scale > d_max] = 0
+                depth_image[depth_image*depth_scale <= 0] = 0
 
-            #breakpoint()
-            #breakpoint()
-            cv2.imshow('mask', masks[0].astype(float))
+                masks, masks_gpu, scores = segmentator(color_image)
 
-            #depth_colormap = cv2.applyColorMap(
-            #        cv2.convertScaleAbs(depth_image,
-            #                            #alpha=0.03),
-            #                            alpha=0.9, beta=0.0),
-            #        cv2.COLORMAP_JET) 
-            #depth_colormap = (255*((depth_image - d_max)/d_max)).astype(np.uint8)[..., None].repeat(repeats=3,axis=2)
-            #depth_colormap = cv2.applyColorMap(
-            #        (255*((depth_image - d_max)/d_max)).astype(np.uint8),
-            #        cv2.COLORMAP_JET) 
-            depth_colormap = cv2.applyColorMap(
-                    #(255*depth_image/depth_image.max() ).astype(np.uint8),
-                    (255*depth_image/(d_max/depth_scale) ).astype(np.uint8),
-                    cv2.COLORMAP_JET) 
-            if masks.size != 0:
+                #breakpoint()
+                #breakpoint()
+                cv2.imshow('mask', masks[0].astype(float))
 
-                ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
-                R, t = pose_estimator.estimate_pose(obj_mask=masks_gpu[0][None,...],
-                            obj_depth=torch.tensor(
-                                (depth_image*masks[0]*depth_scale).astype(np.float32)).squeeze()[None,...]
-                            )
+                #depth_colormap = cv2.applyColorMap(
+                #        cv2.convertScaleAbs(depth_image,
+                #                            #alpha=0.03),
+                #                            alpha=0.9, beta=0.0),
+                #        cv2.COLORMAP_JET) 
+                #depth_colormap = (255*((depth_image - d_max)/d_max)).astype(np.uint8)[..., None].repeat(repeats=3,axis=2)
+                #depth_colormap = cv2.applyColorMap(
+                #        (255*((depth_image - d_max)/d_max)).astype(np.uint8),
+                #        cv2.COLORMAP_JET) 
+                depth_colormap = cv2.applyColorMap(
+                        #(255*depth_image/depth_image.max() ).astype(np.uint8),
+                        (255*depth_image/(d_max/depth_scale) ).astype(np.uint8),
+                        cv2.COLORMAP_JET) 
+                if masks.size != 0:
 
-                ### TODO Multi object support.
-                #obj_depths = torch.tensor([(depth_image*mask*depth_scale).astype(np.float32) for mask in masks])
-                #R, t = pose_estimator.estimate_poses(obj_masks=masks_gpu, scores=scores,
-                #            obj_depths=obj_depths.squeeze())
+                    ### TODO: Can we get depth_image dircetly to gpu from sensor and skip gpu --> cpu with <mask>
+                    R, t = pose_estimator.estimate_pose(obj_mask=masks_gpu[0][None,...],
+                                obj_depth=torch.tensor(
+                                    (depth_image*masks[0]*depth_scale).astype(np.float32)).squeeze()[None,...]
+                                )
 
-                #timeit.endlog()
-                #timeit.log("Rendering.")
+                    ### TODO Multi object support.
+                    #obj_depths = torch.tensor([(depth_image*mask*depth_scale).astype(np.float32) for mask in masks])
+                    #R, t = pose_estimator.estimate_poses(obj_masks=masks_gpu, scores=scores,
+                    #            obj_depths=obj_depths.squeeze())
 
-                for transform_idx in range(R.shape[0]):
-                    #color_image, done = dataset.render_cloud(obj_id=obj_id, 
-                    #        R=R[transform_idx].numpy().astype(np.float32), 
-                    #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                    #        image=color_image)
+                    #timeit.endlog()
+                    #timeit.log("Rendering.")
 
-                    color_image, done = dataset.render_mesh(obj_id=obj_id, 
-                             R=R[transform_idx].numpy().astype(np.float32), 
-                             t=t[transform_idx].numpy()[...,None].astype(np.float32),
-                             image=color_image.copy())
+                    for transform_idx in range(R.shape[0]):
+                        #color_image, done = dataset.render_cloud(obj_id=obj_id, 
+                        #        R=R[transform_idx].numpy().astype(np.float32), 
+                        #        t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                        #        image=color_image)
+
+                        #color_image, done = dataset.render_mesh(obj_id=obj_id, 
+                        #         R=R[transform_idx].numpy().astype(np.float32), 
+                        #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                        #         image=color_image.copy())
+                        color_image, done = dataset.render_mesh_slow(obj_id=obj_id, 
+                                 R=R[transform_idx].numpy().astype(np.float32), 
+                                 t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                                 image=color_image.copy())
+
+                        #color_image, done = dataset.render_depth(obj_id=obj_id, 
+                        #         R=R[transform_idx].numpy().astype(np.float32), 
+                        #         t=t[transform_idx].numpy()[...,None].astype(np.float32),
+                        #         image=color_image.copy())
 
 
-                ### For demo visualization only
-                masked_depth = depth_colormap.copy()
-                masked_depth[masks[0].astype(bool)] = [10, 57, 255]
-                colors_masked = color_image.copy()
-                colors_masked[masks[0].astype(bool)] = [10, 57, 255]
+                    ### For demo visualization only
+                    masked_depth = depth_colormap.copy()
+                    masked_depth[masks[0].astype(bool)] = [10, 57, 255]
+                    colors_masked = color_image.copy()
+                    colors_masked[masks[0].astype(bool)] = [10, 57, 255]
 
-                images = np.hstack([ 
-                    #color_image, 
-                    cv2.addWeighted(depth_colormap, 0.7, masked_depth, 0.3, 0) ,
-                    cv2.addWeighted(color_image, 0.7, colors_masked, 0.3, 0)
-                    #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
-                    ])
-            else:
-                images = np.hstack((color_image, depth_colormap))
+                    images = np.hstack([ 
+                        #color_image, 
+                        cv2.addWeighted(depth_colormap, 0.7, masked_depth, 0.3, 0) ,
+                        cv2.addWeighted(color_image, 0.7, colors_masked, 0.3, 0)
+                        #color_image*np.array(masks.sum(axis=0, dtype=np.uint8)[...,None]) 
+                        ])
+                else:
+                    images = np.hstack((color_image, depth_colormap))
 
-            
-            cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
-            cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
-            cv2.imshow('Align Example', images)
-            key = cv2.waitKey(1)
-            # Press esc or 'q' to close the image window
-            if key & 0xFF == ord('q') or key == 27:
-                cv2.destroyAllWindows()
-                break
-            elif key & 0xFF == ord('s'):
-                print("Recording")
-                recording = True
+                
+                cv2.putText(images, f"fps: {(1/(perf_counter()-fps_start)):2f}", (10,10), cv2.FONT_HERSHEY_PLAIN, 0.5, (255,0,0), 1)
+                cv2.namedWindow('Align Example', cv2.WINDOW_NORMAL)
+                cv2.imshow('Align Example', images)
+                key = cv2.waitKey(wait_time)
+                # Press esc or 'q' to close the image window
+                if key & 0xFF == ord('q') or key == 27:
+                    cv2.destroyAllWindows()
+                    break
+                elif key & 0xFF == ord('s'):
+                    print("Saving")
+                    saving = True
+                    wait_time = 1
 
-            rendered_frames[count % n_frames] = color_image
+                rendered_frames[count % n_frames] = color_image
 
     finally:
         
+        cv2.destroyAllWindows()
         if args.to_save:
             #path = '/tmp/video.mp4'
             path = f'data/results/{args.obj_name}.mp4'
@@ -253,6 +267,7 @@ if __name__=="__main__":
         gear_assembled = 13
         clipper = 14
         pot = 15
+        phone_stand = 16
 
 
     

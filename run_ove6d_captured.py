@@ -34,6 +34,7 @@ class ObjectIds(ArgTypeMixin, Enum):
     gear_assembled = 13
     clipper = 14
     pot = 15
+    phone_stand = 16
 
 class Params():
     """
@@ -80,6 +81,8 @@ class Params():
 
 args = Params()
 args.to_save = True
+#args.to_save = False 
+args.n_triangles = 4000
 
 #args.file_out = ""
 #args.file_in ="test"
@@ -87,23 +90,27 @@ args.file_in ="demo_videos"
 
 args.group = 'single_object'
 
-#args.obj_namerecorded_object_name=test_clipper
+#args.obj_name='clipper'
 #args.obj_id=ObjectIds.clipper
 
 #args.obj_name='test_box'
 #args.obj_id=ObjectIds.box
 
-#args.obj_name = "test_gear"
+#args.obj_name = "gear_assembled"
 #args.obj_id = ObjectIds.gear_assembled
 
-args.obj_name = "head_phones"
-args.obj_id = ObjectIds.head_phones
+args.obj_name = "phone_stand"
+args.obj_id = ObjectIds.phone_stand
+
+#args.obj_name = "head_phones"
+#args.obj_id = ObjectIds.head_phones
 
 #args.obj_name = "pot"
 #args.obj_id = ObjectIds.pot
 
 #args.icp_track_max_iters=10
 args.icp_ove6d_max_iters=20
+args.icp = True
 
 args.segment_method='chromakey'
 #segmentation=histogram_plane
